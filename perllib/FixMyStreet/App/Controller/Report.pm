@@ -661,6 +661,26 @@ sub check_has_permission_to : Private {
     return \%permissions;
 };
 
+
+sub stash_category_groups : Private {
+    my ( $self, $c, $contacts ) = @_;
+
+    my %category_groups = ();
+    for my $category (@$contacts) {
+        my $group = $category->{group} // $category->get_extra_metadata('group') // [''];
+        # this could be an array ref or a string
+        my @groups = ref $group eq 'ARRAY' ? @$group : ($group);
+        push( @{$category_groups{$_}}, $category ) for @groups;
+    }
+
+    my @category_groups = ();
+    for my $group ( grep { $_ ne _('Other') } sort keys %category_groups ) {
+        push @category_groups, { name => $group, categories => $category_groups{$group} };
+    }
+    push @category_groups, { name => _('Other'), categories => $category_groups{_('Other')} } if ($category_groups{_('Other')});
+    $c->stash->{category_groups}  = \@category_groups;
+}
+
 __PACKAGE__->meta->make_immutable;
 
 1;
