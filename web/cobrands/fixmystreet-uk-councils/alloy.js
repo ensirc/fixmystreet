@@ -87,6 +87,8 @@ OpenLayers.Strategy.Alloy = OpenLayers.Class(OpenLayers.Strategy.FixMyStreet, {
       this.failCount = 0;
       this.layer.destroyFeatures();
     },
+    // allow sub classes to override the remote projection for converting the geometry
+    // of the features
     getRemoteProjection: function() {
         return this.layer.projection;
     },
@@ -165,32 +167,26 @@ OpenLayers.Format.Alloy = OpenLayers.Class(OpenLayers.Format.GeoJSON, {
 
 OpenLayers.Protocol.AlloyV2 = OpenLayers.Class(OpenLayers.Protocol.Alloy, {
     tileSize: 128,
-    initialize: function(name, options) {
-        OpenLayers.Protocol.Alloy.prototype.initialize.apply(this, arguments);
-    },
-
     getURL: function(coords, options) {
         return OpenLayers.String.format(options.base, {'layerid': options.layerid, 'styleid': options.styleid, 'z': 17, 'x': coords[0], 'y': coords[1]});
-    },
-
+    }
 });
 
 OpenLayers.Strategy.AlloyV2 = OpenLayers.Class(OpenLayers.Strategy.Alloy, {
-    count: 0,
-    max: 0,
-    requestStart: 0,
     initialize: function(name, options) {
         this.remote = new OpenLayers.Projection("EPSG:4326");
         OpenLayers.Strategy.Alloy.prototype.initialize.apply(this, arguments);
     },
+    // the layer uses EPSG:3857 for generating the tile location but the features
+    // use EPSG:4326
     getRemoteProjection: function() {
         return this.remote;
-    },
+    }
 });
 
 fixmystreet.assets.alloyv2_defaults = {
     http_options: {
-      base: "https://tilma.staging.mysociety.org/resource-proxy/proxy.php?https://northants.assets/api/layer/${layerid}/${x}/${y}/${z}/cluster?styleIds=${styleid}",
+      base: "https://tilma.staging.mysociety.org/resource-proxy/proxy.php?https://northants.assets/api/layer/${layerid}/${x}/${y}/${z}/cluster?styleIds=${styleid}"
     },
     format_class: OpenLayers.Format.Alloy,
     srsName: "EPSG:3857",
