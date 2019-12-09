@@ -845,7 +845,19 @@ $.extend(fixmystreet.utils, {
                 // This option is thankfully used by them both
                 numZoomLevels: fixmystreet.numZoomLevels
             }, fixmystreet.layer_options[i]);
-            if (fixmystreet.layer_options[i].matrixIds) {
+            if (fixmystreet.layer_options[i].wms_version) {
+                var options = {
+                  layers: fixmystreet.layer_options[i].layer_names[0],
+                  size: fixmystreet.layer_options[i].tile_size,
+                  format: fixmystreet.layer_options[i].format
+                };
+                layer = new fixmystreet.map_type(
+                  fixmystreet.layer_options[i].name,
+                  fixmystreet.layer_options[i].url,
+                  options,
+                  fixmystreet.layer_options[i]
+                );
+            } else if (fixmystreet.layer_options[i].matrixIds) {
                 layer = new fixmystreet.map_type(fixmystreet.layer_options[i]);
             } else {
                 layer = new fixmystreet.map_type(fixmystreet.layer_name, fixmystreet.layer_options[i]);

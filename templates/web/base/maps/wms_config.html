@@ -1,0 +1,17 @@
+<script nonce="[% csp_nonce %]">
+  var fixmystreet = window.fixmystreet || {};
+  fixmystreet.wms_config = {
+        'map_projection': '[% map.map_projection %]',
+        'tile_dpi': [% map.tile_dpi %],
+        'tile_urls': [% map.tile_urls %],
+        'tile_size': [% map.tile_size %],
+        'tile_suffix': '[% map.tile_suffix %]',
+        'layer_names': [% map.layer_names %],
+        'layer_style': '[% map.layer_style %]',
+        'wms_version': '[% map.wms_version %]',
+        'format': '[% map.format %]',
+        'scales': [% map.scales %],
+        'origin_x': [% map.origin_x %],
+        'origin_y': [% map.origin_y %]
+  };
+</script>
