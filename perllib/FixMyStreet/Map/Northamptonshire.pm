@@ -5,7 +5,7 @@ use strict;
 
 sub default_zoom { 8; }
 
-sub urls { [ 'https://maps.northamptonshire.gov.uk/interactivemappingwms/getcapabilities.ashx' ] }
+sub urls { [ 'https://maps.northamptonshire.gov.uk/interactivemappingwms/getmap.ashx' ] }
 
 sub layer_names{ [ 'BaseMap' ] }
 
