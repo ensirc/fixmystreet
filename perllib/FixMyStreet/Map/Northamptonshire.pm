@@ -55,6 +55,23 @@ sub tile_parameters {
     return $params;
 }
 
+# Reproject a WGS84 lat/lon into BNG easting/northing
+sub reproject_from_latlon($$$) {
+    my ($self, $lat, $lon) = @_;
+    # do not try to reproject if we have no co-ordindates as convert breaks
+    return (0.0, 0.0) if $lat == 0 && $lon == 0;
+    my ($x, $y) = Utils::convert_latlon_to_en($lat, $lon);
+    warn join ', ', $lat, $lon, $x, $y;
+    return ($x, $y);
+}
+
+# Reproject a BNG easting/northing into WGS84 lat/lon
+sub reproject_to_latlon($$$) {
+    my ($self, $x, $y) = @_;
+    my ($lat, $lon) = Utils::convert_en_to_latlon($x, $y);
+    return ($lat, $lon);
+}
+
 sub map_javascript { [
     '/vendor/OpenLayers/OpenLayers.debug.js',
     '/js/map-OpenLayers.js',

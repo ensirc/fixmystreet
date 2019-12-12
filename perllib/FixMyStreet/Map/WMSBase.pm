@@ -80,12 +80,23 @@ sub map_tiles {
     my ($self, %params) = @_;
     my ($left_col, $top_row, $z) = @params{'x_left_tile', 'y_top_tile', 'matrix_id'};
     my $tile_url = $self->tile_base_url;
+    my $layer = $self->tile_parameters->{layer_names};
     my $tile_suffix = $self->tile_parameters->{suffix};
+    my $version = $self->tile_parameters->{version};
+    my $size = $self->tile_parameters->{size};
+    my $format = $self->tile_parameters->{format};
+    my $projection = $self->tile_parameters->{projection};
+    my @scales = $self->scales;
     my $cols = $params{cols};
     my $rows = $params{rows};
 
     my @col_offsets = (0.. ($cols-1) );
     my @row_offsets = (0.. ($rows-1) );
+
+    my $res = $scales[$params{zoom}] /
+        ($self->tile_parameters->{inches_per_unit} * $self->tile_parameters->{dpi});
+    my $size = $res * $size;
+    my ($min_x, $min_y, $max_x, $max_y) = ($left_col, $top_row - $size, $left_col + $size, $top_row);
 
     return [
         map {
@@ -93,10 +104,10 @@ sub map_tiles {
             [
                 map {
                     my $col_offset = $_;
-                    my $row = $top_row + $row_offset;
-                    my $col = $left_col + $col_offset;
-                    my $src = sprintf '%s/%d/%d/%d%s',
-                        $tile_url, $z, $row, $col, $tile_suffix;
+                    my $row = $row_offset * $size;
+                    my $col = $col_offset * $size;
+                    my $src = sprintf '%s&bbox=%d,%d,%d,%d',
+                        $tile_url, $min_x + $col, $min_y - $row, $max_x + $col, $max_y - $row;
                     my $dotted_id = sprintf '%d.%d', $col, $row;
 
                     # return the data structure for the cell
@@ -221,9 +232,9 @@ sub get_map_hash {
 sub tile_base_url {
     my $self = shift;
     my $params = $self->tile_parameters;
-    return sprintf '%s/%s/%s/%s/%s',
-        $params->{urls}[0], $params->{wms_version}, $params->{layer_names}[0],
-        $params->{layer_style}, $params->{matrix_set};
+    return sprintf '%s?version=%s&format=%s&size=%s&width=%s&height=%s&service=WMS&layers=%s&request=GetMap&srs=%s',
+        $params->{urls}[0], $params->{wms_version}, $params->{format}, $params->{size}, $params->{size},
+        $params->{size}, $params->{layer_names}[0], $params->{projection};
 }
 
 # Given a lat/lon, convert it to tile co-ordinates (precise).
@@ -232,23 +243,7 @@ sub latlon_to_tile($$$$) {
 
     my ($x, $y) = $self->reproject_from_latlon($lat, $lon);
 
-    my $tile_params = $self->tile_parameters;
-
-    my $matrix_id = $zoom + $self->zoom_parameters->{id_offset};
-    my @scales = $self->scales;
-    my $tileOrigin = {
-        lon => $tile_params->{origin_x},
-        lat => $tile_params->{origin_y}
-    };
-    my $res = $scales[$zoom] /
-        ($tile_params->{inches_per_unit} * $tile_params->{dpi});
-        # OpenLayers.INCHES_PER_UNIT[units] * OpenLayers.DOTS_PER_INCH
-
-
-    my $fx = ( $x - $tileOrigin->{lon} ) / ($res * $tile_params->{size});
-    my $fy = ( $tileOrigin->{lat} - $y ) / ($res * $tile_params->{size});
-
-    return ( $fx, $fy, $matrix_id );
+    return ( $x, $y );
 }
 
 # Given a lat/lon, convert it to OSM tile co-ordinates (nearest actual tile,
@@ -264,16 +259,16 @@ sub latlon_to_tile_with_adjust {
         = $self->latlon_to_tile($lat, $lon, $zoom);
 
     # Try and have point near centre of map, passing through if odd
-    unless ($cols % 2) {
-        if ($x_tile - int($x_tile) > 0.5) {
-            $x_tile += 1;
-        }
-    }
-    unless ($rows % 2) {
-        if ($y_tile - int($y_tile) > 0.5) {
-            $y_tile += 1;
-        }
-    }
+    my $tile_params = $self->tile_parameters;
+    my $matrix_id = $zoom + $self->zoom_parameters->{id_offset};
+    my @scales = $self->scales;
+    my $res = $scales[$zoom] /
+        ($tile_params->{inches_per_unit} * $tile_params->{dpi});
+        # OpenLayers.INCHES_PER_UNIT[units] * OpenLayers.DOTS_PER_INCH
+
+
+    $x_tile = $x_tile -  ($res * $tile_params->{size});
+    $y_tile = $y_tile + ($res * $tile_params->{size});
 
     return ( int($x_tile), int($y_tile), $matrix_id );
 }
@@ -294,7 +289,7 @@ sub tile_to_latlon {
     my $x = $fx * $res * $tile_params->{size} + $tileOrigin->{lon};
     my $y = $tileOrigin->{lat} - $fy * $res * $tile_params->{size};
 
-    my ($lat, $lon) = $self->reproject_to_latlon($x, $y);
+    my ($lat, $lon) = $self->reproject_to_latlon($fx, $fy);
 
     return ( $lat, $lon );
 }
@@ -303,8 +298,14 @@ sub tile_to_latlon {
 sub latlon_to_px($$$$$$) {
     my ($self, $lat, $lon, $x_tile, $y_tile, $zoom) = @_;
     my ($pin_x_tile, $pin_y_tile) = $self->latlon_to_tile($lat, $lon, $zoom);
-    my $pin_x = $self->tile_to_px($pin_x_tile, $x_tile);
-    my $pin_y = $self->tile_to_px($pin_y_tile, $y_tile);
+    warn "$x_tile, $y_tile, $pin_x_tile, $pin_y_tile\n";
+    my $tile_params = $self->tile_parameters;
+    my $matrix_id = $zoom + $self->zoom_parameters->{id_offset};
+    my @scales = $self->scales;
+    my $res = $scales[$zoom] /
+        ($tile_params->{inches_per_unit} * $tile_params->{dpi});
+    my $pin_x = ( $pin_x_tile - $x_tile ) / ( $res * $tile_params->{size} ); #$self->tile_to_px($pin_x_tile, $x_tile);
+    my $pin_y = ( $y_tile - $pin_y_tile ) / ( $res * $tile_params->{size} ); #$self->tile_to_px($pin_y_tile, $y_tile);
     return ($pin_x, $pin_y);
 }
 
@@ -312,7 +313,7 @@ sub latlon_to_px($$$$$$) {
 # C is centre tile reference of displayed map
 sub tile_to_px {
     my ($self, $p, $c) = @_;
-    $p = $self->tile_parameters->{size} * ($p - $c);
+    $p = ($p - $c);
     $p = int($p + .5 * ($p <=> 0));
     return $p;
 }
