@@ -78,7 +78,7 @@ sub reproject_to_latlon($$$) {
 
 sub map_tiles {
     my ($self, %params) = @_;
-    my ($left_col, $top_row, $z) = @params{'x_left_tile', 'y_top_tile', 'matrix_id'};
+    my ($left_col, $top_row, $z) = @params{'x_left_tile', 'y_top_tile'};
     my $tile_url = $self->tile_base_url;
     my $layer = $self->tile_parameters->{layer_names};
     my $tile_suffix = $self->tile_parameters->{suffix};
@@ -183,7 +183,7 @@ sub display_map {
 sub get_map_hash {
     my ($self, %params) = @_;
 
-    @params{'x_centre_tile', 'y_centre_tile', 'matrix_id'}
+    @params{'x_centre_tile', 'y_centre_tile'}
         = $self->latlon_to_tile_with_adjust(
             @params{'latitude', 'longitude', 'zoom', 'rows', 'cols'});
 
@@ -254,13 +254,12 @@ sub latlon_to_tile($$$$) {
 #
 sub latlon_to_tile_with_adjust {
     my ($self, $lat, $lon, $zoom, $rows, $cols) = @_;
-    my ($x_tile, $y_tile, $matrix_id)
+    my ($x_tile, $y_tile)
         = my @ret
         = $self->latlon_to_tile($lat, $lon, $zoom);
 
     # Try and have point near centre of map, passing through if odd
     my $tile_params = $self->tile_parameters;
-    my $matrix_id = $zoom + $self->zoom_parameters->{id_offset};
     my @scales = $self->scales;
     my $res = $scales[$zoom] /
         ($tile_params->{inches_per_unit} * $tile_params->{dpi});
@@ -270,7 +269,7 @@ sub latlon_to_tile_with_adjust {
     $x_tile = $x_tile -  ($res * $tile_params->{size});
     $y_tile = $y_tile + ($res * $tile_params->{size});
 
-    return ( int($x_tile), int($y_tile), $matrix_id );
+    return ( int($x_tile), int($y_tile) );
 }
 
 sub tile_to_latlon {
@@ -300,7 +299,6 @@ sub latlon_to_px($$$$$$) {
     my ($pin_x_tile, $pin_y_tile) = $self->latlon_to_tile($lat, $lon, $zoom);
     warn "$x_tile, $y_tile, $pin_x_tile, $pin_y_tile\n";
     my $tile_params = $self->tile_parameters;
-    my $matrix_id = $zoom + $self->zoom_parameters->{id_offset};
     my @scales = $self->scales;
     my $res = $scales[$zoom] /
         ($tile_params->{inches_per_unit} * $tile_params->{dpi});
