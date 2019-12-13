@@ -73,7 +73,7 @@ sub reproject_to_latlon($$$) {
 }
 
 sub map_javascript { [
-    '/vendor/OpenLayers/OpenLayers.debug.js',
+    '/vendor/OpenLayers/OpenLayers.wms.js',
     '/js/map-OpenLayers.js',
     '/js/map-wms-base.js',
     '/js/map-wms-northamptonshire.js',
