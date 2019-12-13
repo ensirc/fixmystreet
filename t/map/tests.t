@@ -2,18 +2,19 @@ use FixMyStreet::Map;
 use Test::More;
 
 my $requires = {
-    'Bexley' => 'map-bexley.js',
     'Bing' => 'map-bing-ol.js',
     'Bristol' => 'map-wmts-bristol.js',
     'Bromley' => 'map-fms.js',
     'Buckinghamshire' => 'map-wmts-buckinghamshire.js',
     'Lincolnshire' => 'lincolnshire/assets.js',
+    'CheshireEast' => 'map-cheshireeast.js',
     'FMS' => 'map-fms.js',
     'Google' => 'map-google.js',
     'GoogleOL' => 'map-google-ol.js',
     'Hounslow' => 'map-wmts-hounslow.js',
     'IsleOfWight' => 'map-wmts-isleofwight.js',
     'OSM' => 'OpenStreetMap.js',
+    'MasterMap' => 'map-mastermap.js',
     'CycleMap' => 'OpenStreetMap.js',
     'MapQuest' => 'OpenStreetMap.js',
     'StreetView' => 'map-streetview.js',

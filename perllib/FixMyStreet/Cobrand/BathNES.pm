@@ -6,6 +6,7 @@ use warnings;
 
 use Moo;
 with 'FixMyStreet::Roles::ConfirmValidation';
+with 'FixMyStreet::Roles::ConfirmOpen311';
 
 use LWP::Simple;
 use URI;
@@ -25,6 +26,19 @@ sub on_map_default_status { 'open' }
 
 sub get_geocoder {
     return 'OSM'; # default of Bing gives poor results, let's try overriding.
+}
+
+sub contact_extra_fields { [ 'display_name' ] }
+
+sub contact_extra_fields_validation {
+    my ($self, $contact, $errors) = @_;
+    return unless $contact->get_extra_metadata('display_name');
+
+    my @contacts = $contact->body->contacts->not_deleted->search({ id => { '!=', $contact->id } });
+    my %display_names = map { ($_->get_extra_metadata('display_name') || '') => 1 } @contacts;
+    if ($display_names{$contact->get_extra_metadata('display_name')}) {
+        $errors->{display_name} = 'That display name is already in use';
+    }
 }
 
 sub disambiguate_location {
@@ -84,33 +98,6 @@ sub category_extra_hidden {
     return $self->SUPER::category_extra_hidden($meta);
 }
 
-sub open311_config {
-    my ($self, $row, $h, $params) = @_;
-
-    my $extra = $row->get_extra_fields;
-    push @$extra,
-        { name => 'report_url',
-          value => $h->{url} },
-        { name => 'title',
-          value => $row->title },
-        { name => 'description',
-          value => $row->detail };
-
-    # Reports made via FMS.com or the app probably won't have a USRN
-    # value because we don't display the adopted highways layer on those
-    # frontends. Instead we'll look up the closest asset from the WFS
-    # service at the point we're sending the report over Open311.
-    if (!$row->get_extra_field_value('site_code')) {
-        if (my $usrn = $self->lookup_usrn($row)) {
-            push @$extra,
-                { name => 'site_code',
-                value => $usrn };
-        }
-    }
-
-    $row->set_extra_fields(@$extra);
-}
-
 sub available_permissions {
     my $self = shift;
 
@@ -124,7 +111,7 @@ sub available_permissions {
 
 sub report_sent_confirmation_email { 'id' }
 
-sub lookup_usrn {
+sub lookup_site_code {
     my $self = shift;
     my $row = shift;
 

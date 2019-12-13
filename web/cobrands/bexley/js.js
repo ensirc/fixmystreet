@@ -14,7 +14,6 @@ var defaults = {
             SRSNAME: "urn:ogc:def:crs:EPSG::3857"
         }
     },
-    format_class: OpenLayers.Format.GML.v3.MultiCurveFix, // Not sure needed any more
     max_resolution: 4.777314267158508,
     min_resolution: 0.5971642833948135,
     geometryName: 'msGeometry',
@@ -75,10 +74,37 @@ fixmystreet.assets.add(road_defaults, {
         }
     },
     nearest_radius: 100,
-    usrn: {
-        attribute: 'NSG_REF',
-        field: 'NSGRef'
-    }
+    usrn: [
+        {
+            attribute: 'UPRN',
+            field: 'uprn'
+        },
+        {
+            attribute: 'NSG_REF',
+            field: 'NSGRef'
+        },
+        {
+            attribute: 'NSG_REF',
+            field: 'site_code'
+        }
+    ]
+});
+
+fixmystreet.assets.add(defaults, {
+    http_options: {
+        url: "https://tilma.staging.mysociety.org/mapserver/bexley",
+        params: {
+            TYPENAME: "Trees"
+        }
+    },
+    asset_id_field: 'central_as',
+    attributes: {
+        central_asset_id: 'central_as',
+        site_code: 'site_code'
+    },
+    asset_type: 'spot',
+    asset_category: ['Street', 'TPO enquiry'],
+    asset_item: 'tree'
 });
 
 fixmystreet.assets.add(labeled_defaults, {
@@ -112,33 +138,6 @@ fixmystreet.assets.add(defaults, {
     asset_type: 'spot',
     asset_category: ["Public toilets"],
     asset_item: 'public toilet'
-});
-
-fixmystreet.assets.add(road_defaults, {
-    http_options: {
-        url: "https://tilma.mysociety.org/mapserver/tfl",
-        params: {
-            TYPENAME: "RedRoutes"
-        }
-    },
-    road: true,
-    all_categories: true,
-    nearest_radius: 0.1,
-    actions: {
-        found: function(layer, feature) {
-            var category = $('select#form_category').val(),
-                relevant = (category !== 'Street cleaning');
-            if (!fixmystreet.assets.selectedFeature() && relevant) {
-                fixmystreet.body_overrides.only_send('TfL');
-                $('#category_meta').empty();
-            } else {
-                fixmystreet.body_overrides.remove_only_send();
-            }
-        },
-        not_found: function(layer) {
-            fixmystreet.body_overrides.remove_only_send();
-        }
-    }
 });
 
 })();

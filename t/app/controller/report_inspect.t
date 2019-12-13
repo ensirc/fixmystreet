@@ -79,6 +79,74 @@ FixMyStreet::override_config {
         $mech->content_lacks('/admin/report_edit/'.$report_id.'">admin</a>)');
     };
 
+    for my $test (
+        {
+            name => "categories only",
+            area_ids => undef,
+            categories => [ $contact->id ],
+            destination => "/reports/Oxfordshire",
+            previous => "/my/inspector_redirect",
+            query_form => { filter_category => $contact->category },
+            good_link => "/my/inspector_redirect",
+            bad_link => "/reports",
+        },
+        {
+            name => "categories and areas",
+            area_ids => [60705],
+            categories => [ $contact->id ],
+            destination => "/reports/Oxfordshire/Trowbridge",
+            previous => "/my/inspector_redirect",
+            query_form => { filter_category => $contact->category },
+            good_link => "/my/inspector_redirect",
+            bad_link => "/reports",
+        },
+        {
+            name => "areas only",
+            area_ids => [60705],
+            categories => undef,
+            destination => "/reports/Oxfordshire/Trowbridge",
+            previous => "/my/inspector_redirect",
+            query_form => {},
+            good_link => "/my/inspector_redirect",
+            bad_link => "/reports",
+        },
+        {
+            name => "no categories or areas",
+            area_ids => undef,
+            categories => undef,
+            destination => "/my",
+            query_form => {},
+            good_link => "/reports",
+            bad_link => "/my/inspector_redirect",
+        },
+    ) {
+        subtest "login destination and top-level nav for inspectors with " . $test->{name} => sub {
+            $mech->log_out_ok;
+
+            $user->area_ids($test->{area_ids});
+            $user->set_extra_metadata('categories', $test->{categories});
+            $user->update;
+
+            # Can't use log_in_ok, as the call to logged_in_ok clobbers our post-login
+            # redirect.
+            $mech->get_ok('/auth');
+            $mech->submit_form_ok(
+                { with_fields => { username => $user->email, password_sign_in => 'secret' } },
+                "sign in using form" );
+            is $mech->res->code, 200, "got 200";
+            is $mech->uri->path, $test->{destination}, 'redirected to correct destination';
+            is_deeply { $mech->uri->query_form }, $test->{query_form}, 'destination query params set correctly';
+            if ($test->{previous}) {
+                is $mech->res->previous->code, 302, "got 302 for post-login redirect";
+                is $mech->res->previous->base->path, $test->{previous}, "previous URI correct";
+            }
+
+            $mech->get_ok("/");
+            ok $mech->find_link( text => 'All reports', url => $test->{good_link} );
+            ok !$mech->find_link( text => 'All reports', url => $test->{bad_link} );
+        };
+    }
+
     subtest "council staff can't see admin report edit link on FMS.com" => sub {
         my $report_edit_permission = $user->user_body_permissions->create({
             body => $oxon, permission_type => 'report_edit' });
@@ -101,7 +169,7 @@ FixMyStreet::override_config {
         $mech->get_ok("/report/$report_id");
         $mech->submit_form_ok({ button => 'save', with_fields => { non_public => 1 } });
         $report->discard_changes;
-        my $alert = FixMyStreet::App->model('DB::Alert')->find(
+        my $alert = FixMyStreet::DB->resultset('Alert')->find(
             { user => $user, alert_type => 'new_updates', confirmed => 1, }
         );
 
@@ -118,7 +186,7 @@ FixMyStreet::override_config {
         $mech->get_ok("/report/$report_id");
         $mech->submit_form_ok({ button => 'save', with_fields => { traffic_information => 'Yes', state => 'Action scheduled', include_update => undef } });
         $report->discard_changes;
-        my $alert = FixMyStreet::App->model('DB::Alert')->find(
+        my $alert = FixMyStreet::DB->resultset('Alert')->find(
             { user => $user, alert_type => 'new_updates', confirmed => 1, }
         );
 
@@ -132,7 +200,6 @@ FixMyStreet::override_config {
         $user->user_body_permissions->create({ body => $oxon, permission_type => 'planned_reports' });
         $report->state('confirmed');
         $report->update;
-        my $reputation = $report->user->get_extra_metadata("reputation");
         $mech->get_ok("/report/$report_id");
         $mech->submit_form_ok({ button => 'save', with_fields => {
             public_update => "This is a public update.", include_update => "1",
@@ -145,7 +212,6 @@ FixMyStreet::override_config {
         $report->discard_changes;
         my $comment = ($report->comments( undef, { order_by => { -desc => 'id' } } )->all)[1]->text;
         is $comment, "This is a public update.", 'Update was created';
-        is $report->user->get_extra_metadata('reputation'), $reputation, "User reputation wasn't changed";
         $mech->get_ok("/report/$report_id");
         my $meta = $mech->extract_update_metas;
         like $meta->[0], qr/State changed to: Action scheduled/, 'First update mentions action scheduled';
@@ -292,7 +358,7 @@ FixMyStreet::override_config {
       $mech->get_ok("/report/$report_id");
       $mech->submit_form_ok({ button => 'save', with_fields => { state => 'Investigating', public_update => "We're investigating.", include_update => "1" } });
 
-      my $alert_count = FixMyStreet::App->model('DB::Alert')->search(
+      my $alert_count = FixMyStreet::DB->resultset('Alert')->search(
           { user_id => $user->id, alert_type => 'new_updates', confirmed => 1, parameter => $report_id }
       )->count();
 
@@ -583,38 +649,6 @@ FixMyStreet::override_config {
 
         return $perms;
     });
-    subtest "test negative reputation" => sub {
-        my $reputation = $report->user->get_extra_metadata("reputation") || 0;
-
-        $mech->get_ok("/report/$report_id");
-        $mech->submit_form( button => 'remove_from_site' );
-
-        $report->discard_changes;
-        is $report->user->get_extra_metadata('reputation'), $reputation-1, "User reputation was decreased";
-        $report->update({ state => 'confirmed' });
-    };
-
-    subtest "test positive reputation" => sub {
-        $user->user_body_permissions->create({ body => $oxon, permission_type => 'report_instruct' });
-        $report->update;
-        $report->inspection_log_entry->delete if $report->inspection_log_entry;
-        my $reputation = $report->user->get_extra_metadata("reputation") || 0;
-        $mech->get_ok("/report/$report_id");
-        $mech->submit_form_ok({ button => 'save', with_fields => {
-            state => 'in progress', include_update => undef,
-        } });
-        $report->discard_changes;
-
-        $mech->submit_form_ok({ button => 'save', with_fields => {
-            state => 'action scheduled', include_update => undef,
-        } });
-        $report->discard_changes;
-        is $report->user->get_extra_metadata('reputation'), $reputation+1, "User reputation was increased";
-
-        $mech->submit_form_ok({ button => 'save', with_fields => {
-            state => 'action scheduled', include_update => undef,
-        } });
-    };
 
     subtest "Oxfordshire-specific traffic management options are shown" => sub {
         $report->update({ state => 'confirmed' });

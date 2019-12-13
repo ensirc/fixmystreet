@@ -87,6 +87,7 @@ requires 'HTML::Entities';
 requires 'HTML::FormHandler::Model::DBIC';
 requires 'HTTP::Request::Common';
 requires 'Image::Size', '3.300';
+requires 'Image::PNG::QRCode';
 requires 'IO::Socket::SSL', '2.066';
 requires 'IO::String';
 requires 'JSON::MaybeXS';
@@ -130,6 +131,8 @@ requires 'YAML', '1.28';
 feature 'uk', 'FixMyStreet.com specific requirements' => sub {
     # East Hampshire
     requires 'SOAP::Lite', '1.20';
+    # TfL
+    requires 'Net::Subnet';
 };
 
 feature 'zurich', 'Zueri wie neu specific requirements' => sub {

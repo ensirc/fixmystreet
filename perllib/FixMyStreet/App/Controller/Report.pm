@@ -356,8 +356,6 @@ sub delete :Chained('id') :Args(0) {
     $p->lastupdate( \'current_timestamp' );
     $p->update;
 
-    $p->user->update_reputation(-1);
-
     $c->model('DB::AdminLog')->create( {
         user => $c->user->obj,
         admin_user => $c->user->from_body->name,
@@ -374,13 +372,19 @@ sub inspect : Private {
     my $problem = $c->stash->{problem};
     my $permissions = $c->stash->{_permissions};
 
-    $c->forward('/admin/categories_for_point');
+    $c->forward('/admin/reports/categories_for_point');
     $c->stash->{report_meta} = { map { 'x' . $_->{name} => $_ } @{ $c->stash->{problem}->get_extra_fields() } };
 
-    if ($c->cobrand->can('council_area_id')) {
-        my $priorities_by_category = FixMyStreet::App->model('DB::ResponsePriority')->by_categories($c->cobrand->council_area_id, @{$c->stash->{contacts}});
+    if ($c->cobrand->can('body')) {
+        my $priorities_by_category = FixMyStreet::App->model('DB::ResponsePriority')->by_categories(
+            $c->stash->{contacts},
+            body_id => $c->cobrand->body->id
+        );
         $c->stash->{priorities_by_category} = $priorities_by_category;
-        my $templates_by_category = FixMyStreet::App->model('DB::ResponseTemplate')->by_categories($c->cobrand->council_area_id, @{$c->stash->{contacts}});
+        my $templates_by_category = FixMyStreet::App->model('DB::ResponseTemplate')->by_categories(
+            $c->stash->{contacts},
+            body_id => $c->cobrand->body->id
+        );
         $c->stash->{templates_by_category} = $templates_by_category;
     }
 
@@ -408,7 +412,6 @@ sub inspect : Private {
 
         my $valid = 1;
         my $update_text = '';
-        my $reputation_change = 0;
         my %update_params = ();
 
         if ($permissions->{report_inspect}) {
@@ -463,8 +466,6 @@ sub inspect : Private {
                 $update_params{problem_state} = $problem->state;
 
                 my $state = $problem->state;
-                $reputation_change = 1 if $c->cobrand->reputation_increment_states->{$state};
-                $reputation_change = -1 if $c->cobrand->reputation_decrement_states->{$state};
 
                 # If an inspector has changed the state, subscribe them to
                 # updates
@@ -482,7 +483,7 @@ sub inspect : Private {
             $problem->get_photoset->delete_cached(plus_updates => 1);
         }
 
-        if ( !$c->forward( '/admin/report_edit_location', [ $problem ] ) ) {
+        if ( !$c->forward( '/admin/reports/edit_location', [ $problem ] ) ) {
             # New lat/lon isn't valid, show an error
             $valid = 0;
             $c->stash->{errors} ||= [];
@@ -490,10 +491,11 @@ sub inspect : Private {
         }
 
         if ($permissions->{report_inspect} || $permissions->{report_edit_category}) {
-            $c->forward( '/admin/report_edit_category', [ $problem, 1 ] );
+            $c->forward( '/admin/reports/edit_category', [ $problem, 1 ] );
 
             if ($c->stash->{update_text}) {
-                $update_text .= "\n\n" . $c->stash->{update_text};
+                $update_text .= "\n\n" if $update_text;
+                $update_text .= $c->stash->{update_text};
             }
 
             # The new category might require extra metadata (e.g. pothole size), so
@@ -518,11 +520,9 @@ sub inspect : Private {
         $c->cobrand->call_hook(report_inspect_update_extra => $problem);
 
         if ($valid) {
-            if ( $reputation_change != 0 ) {
-                $problem->user->update_reputation($reputation_change);
-            }
             $problem->lastupdate( \'current_timestamp' );
             $problem->update;
+            $c->forward( '/admin/log_edit', [ $problem->id, 'problem', 'edit' ] );
             if ($update_text || %update_params) {
                 my $timestamp = \'current_timestamp';
                 if (my $saved_at = $c->get_param('saved_at')) {
@@ -660,6 +660,33 @@ sub check_has_permission_to : Private {
     my %permissions = map { $_ => $c->user->has_permission_to($_, $bodies) } @permissions;
     return \%permissions;
 };
+
+
+sub stash_category_groups : Private {
+    my ( $self, $c, $contacts, $combine_multiple ) = @_;
+
+    my %category_groups = ();
+    for my $category (@$contacts) {
+        my $group = $category->{group} // $category->get_extra_metadata('group') // [''];
+        # this could be an array ref or a string
+        my @groups = ref $group eq 'ARRAY' ? @$group : ($group);
+        if (scalar @groups > 1 && $combine_multiple) {
+            @groups = sort @groups;
+            $category->{group} = \@groups;
+            push( @{$category_groups{_('Multiple Groups')}}, $category );
+        } else {
+            push( @{$category_groups{$_}}, $category ) for @groups;
+        }
+    }
+
+    my @category_groups = ();
+    for my $group ( grep { $_ ne _('Other') && $_ ne _('Multiple Groups') } sort keys %category_groups ) {
+        push @category_groups, { name => $group, categories => $category_groups{$group} };
+    }
+    push @category_groups, { name => _('Other'), categories => $category_groups{_('Other')} } if ($category_groups{_('Other')});
+    push @category_groups, { name => _('Multiple Groups'), categories => $category_groups{_('Multiple Groups')} } if ($category_groups{_('Multiple Groups')});
+    $c->stash->{category_groups}  = \@category_groups;
+}
 
 __PACKAGE__->meta->make_immutable;
 

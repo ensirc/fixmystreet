@@ -1,12 +1,10 @@
 use FixMyStreet::TestMech;
-use FixMyStreet::App;
 use FixMyStreet::Script::Alerts;
 
 my $mech = FixMyStreet::TestMech->new;
 
-my $user = $mech->log_in_ok('test@example.com');
-$mech->get_ok('/alert/subscribe?id=1');
-my ($csrf) = $mech->content =~ /name="token" value="([^"]*)"/;
+my $user = FixMyStreet::App->model('DB::User')
+          ->new( { email => 'test@example.com' } );
 
 foreach my $test (
     {
@@ -63,25 +61,19 @@ foreach my $test (
 
         my $type = $test->{type};
 
-        my $user =
-          FixMyStreet::App->model('DB::User')
-          ->find( { email => $test->{email} } );
-
-        # we don't want an alert
-        if ($user) {
-            $mech->delete_user($user);
-        }
+        $mech->get_ok('/alert/subscribe?id=1');
+        my ($csrf) = $mech->content =~ /name="token" value="([^"]*)"/;
 
         $mech->get_ok( $test->{uri} . "&token=$csrf" );
         $mech->content_contains( $test->{content} );
 
-        $user =
-          FixMyStreet::App->model('DB::User')
+        my $user =
+          FixMyStreet::DB->resultset('User')
           ->find( { email => $test->{email} } );
 
         ok $user, 'user created for alert';
 
-        my $alert = FixMyStreet::App->model('DB::Alert')->find(
+        my $alert = FixMyStreet::DB->resultset('Alert')->find(
             {
                 user       => $user,
                 alert_type => $type,
@@ -101,7 +93,7 @@ foreach my $test (
         my ($url_token) = $url =~ m{/A/(\S+)};
         ok $url, "extracted confirm url '$url'";
 
-        my $token = FixMyStreet::App->model('DB::Token')->find(
+        my $token = FixMyStreet::DB->resultset('Token')->find(
             {
                 token => $url_token,
                 scope => 'alert'
@@ -121,7 +113,7 @@ foreach my $test (
         ($url_token) = $url =~ m{/A/(\S+)};
         ok $url_token ne $existing_token, 'sent out a new token';
 
-        $token = FixMyStreet::App->model('DB::Token')->find(
+        $token = FixMyStreet::DB->resultset('Token')->find(
             {
                 token => $url_token,
                 scope => 'alert'
@@ -135,7 +127,7 @@ foreach my $test (
         $mech->content_contains('alert created');
 
         $alert =
-          FixMyStreet::App->model('DB::Alert')->find( { id => $existing_id, } );
+          FixMyStreet::DB->resultset('Alert')->find( { id => $existing_id, } );
 
         ok $alert->confirmed, 'alert set to confirmed';
         $mech->delete_user($user);
@@ -154,7 +146,7 @@ foreach my $test (
 
         my $user = $mech->create_user_ok('test-new@example.com');
 
-        my $alert = FixMyStreet::App->model('DB::Alert')->find(
+        my $alert = FixMyStreet::DB->resultset('Alert')->find(
             {
                 user       => $user,
                 alert_type => $type
@@ -163,9 +155,12 @@ foreach my $test (
         # clear existing data so we can be sure we're creating it
         ok $alert->delete() if $alert && !$test->{exist};
 
+        $mech->get_ok('/alert/subscribe?id=1');
+        my ($csrf) = $mech->content =~ /name="token" value="([^"]*)"/;
+
         $mech->get_ok( '/alert/subscribe?type=local&rznvy=' . $user->email . '&feed=area:1000:A_Location&token=' . $csrf );
 
-        $alert = FixMyStreet::App->model('DB::Alert')->find(
+        $alert = FixMyStreet::DB->resultset('Alert')->find(
             {
                 user       => $user,
                 alert_type => $type,
@@ -206,7 +201,7 @@ foreach my $test (
         $mech->clear_emails_ok;
 
         FixMyStreet::override_config {
-            ALLOWED_COBRANDS => [ { 'fixmystreet' => '.' } ],
+            ALLOWED_COBRANDS => 'fixmystreet',
             MAPIT_URL => 'http://mapit.uk/',
         }, sub {
             $mech->get_ok('/alert/list?pc=EH11BB');
@@ -214,7 +209,7 @@ foreach my $test (
         $mech->set_visible( [ radio => 'council:' . $body->id . ':City_of_Edinburgh' ] );
         $mech->click('alert');
 
-        my $alert = FixMyStreet::App->model('DB::Alert')->find(
+        my $alert = FixMyStreet::DB->resultset('Alert')->find(
             {
                 user       => $user,
                 alert_type => $type,
@@ -247,7 +242,7 @@ for my $test (
         my $type = $test->{type};
 
         my $user =
-          FixMyStreet::App->model('DB::User')
+          FixMyStreet::DB->resultset('User')
           ->find( { email => $test->{email} } );
 
         # we don't want an alert
@@ -257,19 +252,22 @@ for my $test (
         }
 
         my $abuse =
-          FixMyStreet::App->model('DB::Abuse')
+          FixMyStreet::DB->resultset('Abuse')
           ->find_or_create( { email => $test->{email} } );
+
+        $mech->get_ok('/alert/subscribe?id=1');
+        my ($csrf) = $mech->content =~ /name="token" value="([^"]*)"/;
 
         $mech->get_ok( $test->{uri} . "&token=$csrf" );
         $mech->content_contains( $test->{content} );
 
         $user =
-          FixMyStreet::App->model('DB::User')
+          FixMyStreet::DB->resultset('User')
           ->find( { email => $test->{email} } );
 
         ok $user, 'user created for alert';
 
-        $alert = FixMyStreet::App->model('DB::Alert')->find(
+        $alert = FixMyStreet::DB->resultset('Alert')->find(
             {
                 user       => $user,
                 alert_type => $type,
@@ -310,7 +308,7 @@ subtest "Test two-tier council alerts" => sub {
         },
     ) {
         FixMyStreet::override_config {
-            ALLOWED_COBRANDS => [ { 'fixmystreet' => '.' } ],
+            ALLOWED_COBRANDS => 'fixmystreet',
             MAPIT_URL => 'http://mapit.uk/',
         }, sub {
             $mech->get_ok( '/alert/list?pc=GL502PR' );
@@ -345,7 +343,7 @@ subtest "Test normal alert signups and that alerts are sent" => sub {
     ) {
         $mech->get_ok( '/alert' );
         FixMyStreet::override_config {
-            ALLOWED_COBRANDS => [ { 'fixmystreet' => '.' } ],
+            ALLOWED_COBRANDS => 'fixmystreet',
             MAPIT_URL => 'http://mapit.uk/',
         }, sub {
             $mech->submit_form_ok( { with_fields => { pc => 'EH11BB' } } );
@@ -358,7 +356,7 @@ subtest "Test normal alert signups and that alerts are sent" => sub {
             my $url = $mech->get_link_from_email;
             my ($url_token) = $url =~ m{/A/(\S+)};
             $mech->clear_emails_ok;
-            my $token = FixMyStreet::App->model('DB::Token')->find( { token => $url_token, scope => 'alert' } );
+            my $token = FixMyStreet::DB->resultset('Token')->find( { token => $url_token, scope => 'alert' } );
             $mech->get_ok( $url );
             $mech->content_contains('alert created');
         } else {
@@ -414,6 +412,9 @@ subtest "Test normal alert signups and that alerts are sent" => sub {
     is +(my $c = () = $email->as_string =~ /Other User/g), 2, 'Update name given, twice';
     unlike $email->as_string, qr/Anonymous User/, 'Update name not given';
 
+    $report->discard_changes;
+    ok $report->get_extra_metadata('closure_alert_sent_at'), 'Closure time set';
+
     # The update alert was to the problem reporter, so has a special update URL
     $mech->log_out_ok;
     $mech->get_ok( "/report/$report_id" );
@@ -449,14 +450,14 @@ subtest "Test alerts are not sent for no-text updates" => sub {
     ok $report2, "created test report - $report2_id";
 
     # Must be first
-    my $alert2 = FixMyStreet::App->model('DB::Alert')->create( {
+    my $alert2 = FixMyStreet::DB->resultset('Alert')->create( {
         parameter  => $report2_id,
         alert_type => 'new_updates',
         user       => $user2,
     } )->confirm;
     ok $alert2, 'created alert for other user';
 
-    my $alert = FixMyStreet::App->model('DB::Alert')->create( {
+    my $alert = FixMyStreet::DB->resultset('Alert')->create( {
         parameter  => $report_id,
         alert_type => 'new_updates',
         user       => $user2,
@@ -492,7 +493,7 @@ subtest "Test no marked as confirmed added to alerts" => sub {
     my $report_id = $report->id;
     ok $report, "created test report - $report_id";
 
-    my $alert = FixMyStreet::App->model('DB::Alert')->create( {
+    my $alert = FixMyStreet::DB->resultset('Alert')->create( {
         parameter  => $report_id,
         alert_type => 'new_updates',
         user       => $user2,
@@ -552,7 +553,7 @@ for my $test (
         my $report_id = $report->id;
         ok $report, "created test report - $report_id";
 
-        my $alert = FixMyStreet::App->model('DB::Alert')->create( {
+        my $alert = FixMyStreet::DB->resultset('Alert')->create( {
             parameter  => $report_id,
             alert_type => 'new_updates',
             user       => $user2,
@@ -597,7 +598,7 @@ subtest "Test signature template is used from cobrand" => sub {
     my $report_id = $report->id;
     ok $report, "created test report - $report_id";
 
-    my $alert = FixMyStreet::App->model('DB::Alert')->create( {
+    my $alert = FixMyStreet::DB->resultset('Alert')->create( {
         parameter  => $report_id,
         alert_type => 'new_updates',
         user       => $user1,
@@ -611,9 +612,9 @@ subtest "Test signature template is used from cobrand" => sub {
     $mech->clear_emails_ok;
     FixMyStreet::override_config {
         MAPIT_URL => 'http://mapit.uk/',
-        ALLOWED_COBRANDS => [ { 'fixmystreet' => '.' } ],
+        ALLOWED_COBRANDS => 'fixmystreet',
     }, sub {
-        FixMyStreet::App->model('DB::AlertType')->email_alerts();
+        FixMyStreet::DB->resultset('AlertType')->email_alerts();
     };
 
     my $email = $mech->get_text_body_from_email;
@@ -628,9 +629,9 @@ subtest "Test signature template is used from cobrand" => sub {
     $mech->clear_emails_ok;
     FixMyStreet::override_config {
         MAPIT_URL => 'http://mapit.uk/',
-        ALLOWED_COBRANDS => [ { 'fixmystreet' => '.' } ],
+        ALLOWED_COBRANDS => 'fixmystreet',
     }, sub {
-        FixMyStreet::App->model('DB::AlertType')->email_alerts();
+        FixMyStreet::DB->resultset('AlertType')->email_alerts();
     };
 
     $email = $mech->get_text_body_from_email;
@@ -686,7 +687,7 @@ for my $test (
         $alert_params->{whensubscribed} = $dt;
         $alert_params->{confirmed} = 1;
 
-        my $alert_user1 = FixMyStreet::App->model('DB::Alert')->create( $alert_params );
+        my $alert_user1 = FixMyStreet::DB->resultset('Alert')->create( $alert_params );
         ok $alert_user1, "alert created";
 
         my ($report) = $mech->create_problems_for_body(1, $body->id, 'Testing', {
@@ -703,7 +704,7 @@ for my $test (
         FixMyStreet::override_config {
             MAPIT_URL => 'http://mapit.uk/',
         }, sub {
-            FixMyStreet::App->model('DB::AlertType')->email_alerts();
+            FixMyStreet::DB->resultset('AlertType')->email_alerts();
         };
         $mech->email_count_is(0);
 
@@ -711,7 +712,7 @@ for my $test (
         FixMyStreet::override_config {
             MAPIT_URL => 'http://mapit.uk/',
         }, sub {
-            FixMyStreet::App->model('DB::AlertType')->email_alerts();
+            FixMyStreet::DB->resultset('AlertType')->email_alerts();
         };
         my $email = $mech->get_text_body_from_email;
         like $email, qr/Alert\s+test\s+for\s+non\s+public\s+reports/, 'alert contains public report';
@@ -736,7 +737,7 @@ subtest 'check new updates alerts for non public reports only go to report owner
 
     $mech->create_comment_for_problem($report, $user3, 'Anonymous User', 'This is some more update text', 't', 'confirmed', undef, { confirmed  => $r_dt->clone->add( minutes => 8 ) });
 
-    my $alert_user1 = FixMyStreet::App->model('DB::Alert')->create( {
+    my $alert_user1 = FixMyStreet::DB->resultset('Alert')->create( {
             user       => $user1,
             alert_type => 'new_updates',
             parameter  => $report->id,
@@ -746,10 +747,10 @@ subtest 'check new updates alerts for non public reports only go to report owner
     ok $alert_user1, "alert created";
 
     $mech->clear_emails_ok;
-    FixMyStreet::App->model('DB::AlertType')->email_alerts();
+    FixMyStreet::DB->resultset('AlertType')->email_alerts();
     $mech->email_count_is(0);
 
-    my $alert_user2 = FixMyStreet::App->model('DB::Alert')->create( {
+    my $alert_user2 = FixMyStreet::DB->resultset('Alert')->create( {
             user       => $user2,
             alert_type => 'new_updates',
             parameter  => $report->id,
@@ -758,13 +759,13 @@ subtest 'check new updates alerts for non public reports only go to report owner
     } );
     ok $alert_user2, "alert created";
 
-    FixMyStreet::App->model('DB::AlertType')->email_alerts();
+    FixMyStreet::DB->resultset('AlertType')->email_alerts();
     my $email = $mech->get_text_body_from_email;
     like $email, qr/This is some more update text/, 'alert contains update text';
 
     $mech->clear_emails_ok;
     $report->update( { non_public => 0 } );
-    FixMyStreet::App->model('DB::AlertType')->email_alerts();
+    FixMyStreet::DB->resultset('AlertType')->email_alerts();
     $email = $mech->get_text_body_from_email;
     like $email, qr/This is some more update text/, 'alert contains update text';
 
@@ -792,7 +793,7 @@ subtest 'check setting include dates in new updates cobrand option' => sub {
 
     my $update = $mech->create_comment_for_problem($report, $user3, 'Anonymous User', 'This is some more update text', 't', 'confirmed', undef, { confirmed  => $r_dt });
 
-    my $alert_user1 = FixMyStreet::App->model('DB::Alert')->create( {
+    my $alert_user1 = FixMyStreet::DB->resultset('Alert')->create( {
             user       => $user1,
             alert_type => 'new_updates',
             parameter  => $report->id,
@@ -803,7 +804,7 @@ subtest 'check setting include dates in new updates cobrand option' => sub {
 
 
     $mech->clear_emails_ok;
-    FixMyStreet::App->model('DB::AlertType')->email_alerts();
+    FixMyStreet::DB->resultset('AlertType')->email_alerts();
 
     my $date_in_alert = Utils::prettify_dt( $update->confirmed );
     my $email = $mech->get_text_body_from_email;

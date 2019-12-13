@@ -11,7 +11,7 @@ if ( location.hostname === 'www.fixmystreet.com' || location.hostname === 'fms.i
 
 var defaults = {
     http_options: {
-        url: is_live ? "https://tilma.mysociety.org/mapserver/iow": "https://staging.tilma.mysociety.org/mapserver/iow",
+        url: is_live ? "https://tilma.mysociety.org/mapserver/iow": "https://tilma.staging.mysociety.org/mapserver/iow",
         params: {
             SERVICE: "WFS",
             VERSION: "1.1.0",
@@ -19,7 +19,6 @@ var defaults = {
             SRSNAME: "urn:ogc:def:crs:EPSG::27700"
         }
     },
-    format_class: OpenLayers.Format.GML.v3.MultiCurveFix,
     max_resolution: {
         'isleofwight': 0.5291677250021167,
         'fixmystreet': 1.194328566789627

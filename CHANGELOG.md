@@ -1,6 +1,10 @@
 ## Releases
 
 * Unreleased
+    - Security:
+        - Fix XSS vulnerability in pagination page number.
+        - Rotate session ID after successful login.
+        - Switch to auto-escaping of all template variables (see below).
     - Front end improvements:
         - Improved 403 message, especially for private reports. #2511
         - Mobile users can now filter the pins on the `/around` map view. #2366
@@ -13,14 +17,23 @@
         - Pass ‘filter_category’ param to front page to pre-filter map.
         - Remove on-map Permalink.
         - Darken front page step numbers, and improve nested heading structure.
+        - Set report title autocomplete to off to prevent email autocompleting
+        - Add map filter debouncing to reduce server requests. #2675
+        - Add XSL to RSS feeds so they look nicer in browsers.
     - Admin improvements:
         - Add new roles system, to group permissions and apply to users. #2483
         - Contact form emails now include user admin links.
         - Allow categories/Open311 questions to disable the reporting form. #2599
         - Improve category edit form. #2469
+        - Allow editing of category name. #1398
+        - Allow non-superuser staff to use 2FA, and optional enforcement of 2FA.
+        - Add optional enforced password expiry.
+        - Store a moderation history on admin report edit.
+        - Add user admin log page.
     - New features:
         - Categories can be listed under more than one group #2475
         - OpenID Connect login support. #2523
+        - Heatmap dashboard. #2675
     - Bugfixes:
         - Prevent creation of two templates with same title. #2471
         - Fix bug going between report/new pages client side. #2484
@@ -38,14 +51,20 @@
         - Allow contact send method to be unset always.
         - Fix z-index stacking bug that was causing unclickable RSS icons on /alert page. #2624
         - Fix issue with inspector duplication workflow.
-    - Front end improvements:
-        - Set report title autocomplete to off to prevent email autocompleting
+        - Fix removal of cached photos on moderation. #2696
+        - Checking of cached front page details against database. #2696
+        - Inconsistent display of mark private checkbox for staff users
     - Development improvements:
         - Upgrade the underlying framework and a number of other packages. #2473
         - Add feature cobrand helper function.
         - Add front-end testing support for WSL. #2514
         - Allow cobrands to disable admin resending.
         - Sass variables for default link colour and decoration.
+        - Make contact edit note optional on staging sites.
+        - Store email addresses report sent to on the report.
+        - Add configuration for setting Content-Security-Policy header.
+        - Add banner on staging website/emails.
+        - Do not hard code site name in database fixture.
     - Open311 improvements:
         - Support use of 'private' service definition <keywords> to mark
           reports made in that category private. #2488
@@ -61,6 +80,10 @@
         - Add support for account_id parameter to POST Service Request calls.
         - Do not overwrite/remove protected meta data. #2598
         - Spot multiple groups inside a <groups> element.
+    - Backwards incompatible changes:
+        - The FixMyStreet templating code will now escape all variables by
+          default. If you need to output HTML in a variable directly, you will
+          need to escape it with the `safe` filter, e.g. `[% some_html | safe %]`.
 
 * v2.6 (3rd May 2019)
     - New features:

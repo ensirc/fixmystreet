@@ -171,7 +171,7 @@ sub add : Local : Args(0) {
     $c->forward('user_cobrand_extra_fields');
     $user->insert;
 
-    $c->forward( '/admin/log_edit', [ $user->id, 'user', 'edit' ] );
+    $c->forward( '/admin/log_edit', [ $user->id, 'user', 'add' ] );
 
     $c->flash->{status_message} = _("Updated!");
     $c->detach('post_edit_redirect', [ $user ]);
@@ -189,19 +189,24 @@ sub fetch_body_roles : Private {
     $c->stash->{roles} = [ $roles->all ];
 }
 
-sub edit : Path : Args(1) {
+sub user : Chained('/') PathPart('admin/users') : CaptureArgs(1) {
     my ( $self, $c, $id ) = @_;
-
-    $c->forward('/auth/get_csrf_token');
 
     my $user = $c->cobrand->users->find( { id => $id } );
     $c->detach( '/page_error_404_not_found', [] ) unless $user;
+    $c->stash->{user} = $user;
 
     unless ( $c->user->has_body_permission_to('user_edit') || $c->cobrand->moniker eq 'zurich' ) {
         $c->detach('/page_error_403_access_denied', []);
     }
+}
 
-    $c->stash->{user} = $user;
+sub edit : Chained('user') : PathPart('') : Args(0) {
+    my ( $self, $c ) = @_;
+
+    $c->forward('/auth/get_csrf_token');
+
+    my $user = $c->stash->{user};
     $c->forward( '/admin/check_username_for_abuse', [ $user ] );
 
     if ( $user->from_body && $c->user->has_permission_to('user_manage_permissions', $user->from_body->id) ) {
@@ -232,13 +237,11 @@ sub edit : Path : Args(1) {
     } elsif ( $c->get_param('submit') and $c->get_param('send_login_email') ) {
         my $email = lc $c->get_param('email');
         my %args = ( email => $email );
-        $args{user_id} = $id if $user->email ne $email || !$user->email_verified;
+        $args{user_id} = $user->id if $user->email ne $email || !$user->email_verified;
         $c->forward('send_login_email', [ \%args ]);
     } elsif ( $c->get_param('update_alerts') ) {
         $c->forward('update_alerts');
     } elsif ( $c->get_param('submit') ) {
-
-        my $edited = 0;
 
         my $name = $c->get_param('name');
         my $email = lc $c->get_param('email');
@@ -281,19 +284,10 @@ sub edit : Path : Args(1) {
 
         return if %{$c->stash->{field_errors}};
 
-        if ( ($user->email || "") ne $email ||
-            $user->name ne $name ||
-            ($user->phone || "") ne $phone ||
-            ($user->from_body && $c->get_param('body') && $user->from_body->id ne $c->get_param('body')) ||
-            (!$user->from_body && $c->get_param('body'))
-        ) {
-                $edited = 1;
-        }
-
         if ($existing_user_cobrand) {
             $existing_user->adopt($user);
-            $c->forward( '/admin/log_edit', [ $id, 'user', 'merge' ] );
-            return $c->res->redirect( $c->uri_for_action( 'admin/users/edit', $existing_user->id ) );
+            $c->forward( '/admin/log_edit', [ $user->id, 'user', 'merge' ] );
+            return $c->res->redirect( $c->uri_for_action( 'admin/users/edit', [ $existing_user->id ] ) );
         }
 
         $user->email($email) if !$existing_email;
@@ -371,35 +365,6 @@ sub edit : Path : Args(1) {
             $user->area_ids( @area_ids ? \@area_ids : undef );
         }
 
-        # Handle 'trusted' flag(s)
-        my @trusted_bodies = $c->get_param_list('trusted_bodies');
-        if ( $c->user->is_superuser ) {
-            $user->user_body_permissions->search({
-                body_id => { -not_in => \@trusted_bodies },
-                permission_type => 'trusted',
-            })->delete;
-            foreach my $body_id (@trusted_bodies) {
-                $user->user_body_permissions->find_or_create({
-                    body_id => $body_id,
-                    permission_type => 'trusted',
-                });
-            }
-        } elsif ( $c->user->from_body ) {
-            my %trusted = map { $_ => 1 } @trusted_bodies;
-            my $body_id = $c->user->from_body->id;
-            if ( $trusted{$body_id} ) {
-                $user->user_body_permissions->find_or_create({
-                    body_id => $body_id,
-                    permission_type => 'trusted',
-                });
-            } else {
-                $user->user_body_permissions->search({
-                    body_id => $body_id,
-                    permission_type => 'trusted',
-                })->delete;
-            }
-        }
-
         # Update the categories this user operates in
         if ( $user->from_body ) {
             $c->stash->{body} = $user->from_body;
@@ -411,9 +376,7 @@ sub edit : Path : Args(1) {
         }
 
         $user->update;
-        if ($edited) {
-            $c->forward( '/admin/log_edit', [ $id, 'user', 'edit' ] );
-        }
+        $c->forward( '/admin/log_edit', [ $user->id, 'user', 'edit' ] );
         $c->flash->{status_message} = _("Updated!");
 
         $c->detach('post_edit_redirect', [ $user ]);
@@ -431,8 +394,10 @@ sub edit : Path : Args(1) {
             id => $_->id,
             category => $_->category,
             active => $active_contacts{$_->id},
+            group => $_->get_extra_metadata('group') // '',
         } } @live_contacts;
         $c->stash->{contacts} = \@all_contacts;
+        $c->forward('/report/stash_category_groups', [ \@all_contacts, 1 ]) if $c->cobrand->enable_category_groups;
     }
 
     # this goes after in case we've delete any alerts
@@ -443,13 +408,45 @@ sub edit : Path : Args(1) {
     return 1;
 }
 
+sub log : Chained('user') : PathPart('log') : Args(0) {
+    my ($self, $c) = @_;
+
+    my $user = $c->stash->{user};
+
+    my $after = $c->get_param('after');
+
+    my %time;
+    foreach ($user->admin_logs->all) {
+        push @{$time{$_->whenedited->epoch}}, { type => 'log', date => $_->whenedited, log => $_ };
+    }
+    foreach ($c->cobrand->problems->search({ extra => { like => '%contributed_by%' . $user->id . '%' } })->all) {
+        next unless $_->get_extra_metadata('contributed_by') == $user->id;
+        push @{$time{$_->created->epoch}}, { type => 'problemContributedBy', date => $_->created, obj => $_ };
+    }
+
+    foreach ($user->user_planned_reports->all) {
+        push @{$time{$_->added->epoch}}, { type => 'shortlistAdded', date => $_->added, obj => $_->report };
+        push @{$time{$_->removed->epoch}}, { type => 'shortlistRemoved', date => $_->removed, obj => $_->report } if $_->removed;
+    }
+
+    foreach ($user->problems->all) {
+        push @{$time{$_->created->epoch}}, { type => 'problem', date => $_->created, obj => $_ };
+    }
+
+    foreach ($user->comments->all) {
+        push @{$time{$_->created->epoch}}, { type => 'update', date => $_->created, obj => $_};
+    }
+
+    $c->stash->{time} = \%time;
+}
+
 sub post_edit_redirect : Private {
     my ( $self, $c, $user ) = @_;
 
     # User may not be visible on this cobrand, e.g. if their from_body
     # wasn't set.
     if ( $c->cobrand->users->find( { id => $user->id } ) ) {
-        return $c->res->redirect( $c->uri_for_action( 'admin/users/edit', $user->id ) );
+        return $c->res->redirect( $c->uri_for_action( 'admin/users/edit', [ $user->id ] ) );
     } else {
         return $c->res->redirect( $c->uri_for_action( 'admin/users/index' ) );
     }
@@ -634,6 +631,7 @@ sub user_remove_account : Private {
     my ( $self, $c, $user ) = @_;
     $c->forward('user_logout_everywhere', [ $user ]);
     $user->anonymize_account;
+    $c->forward( '/admin/log_edit', [ $user->id, 'user', 'edit' ] );
     $c->stash->{status_message} = _('That user’s personal details have been removed.');
 }
 
@@ -661,6 +659,7 @@ sub ban : Private {
             $c->stash->{status_message} = _('User already in abuse list');
         } else {
             $abuse->insert;
+            $c->forward( '/admin/log_edit', [ $user->id, 'user', 'edit' ] );
             $c->stash->{status_message} = _('User added to abuse list');
         }
         $c->stash->{username_in_abuse} = 1;
@@ -671,6 +670,7 @@ sub ban : Private {
             $c->stash->{status_message} = _('User already in abuse list');
         } else {
             $abuse->insert;
+            $c->forward( '/admin/log_edit', [ $user->id, 'user', 'edit' ] );
             $c->stash->{status_message} = _('User added to abuse list');
         }
         $c->stash->{username_in_abuse} = 1;
@@ -692,6 +692,7 @@ sub unban : Private {
         my $abuse = $c->model('DB::Abuse')->search({ email => \@username });
         if ( $abuse ) {
             $abuse->delete;
+            $c->forward( '/admin/log_edit', [ $user->id, 'user', 'edit' ] );
             $c->stash->{status_message} = _('user removed from abuse list');
         } else {
             $c->stash->{status_message} = _('user not in abuse list');
@@ -721,6 +722,7 @@ sub flag : Private {
     } else {
         $user->flagged(1);
         $user->update;
+        $c->forward( '/admin/log_edit', [ $user->id, 'user', 'edit' ] );
         $c->stash->{status_message} = _('User flagged');
     }
 
@@ -750,6 +752,7 @@ sub flag_remove : Private {
     } else {
         $user->flagged(0);
         $user->update;
+        $c->forward( '/admin/log_edit', [ $user->id, 'user', 'edit' ] );
         $c->stash->{status_message} = _('User flag removed');
     }
 

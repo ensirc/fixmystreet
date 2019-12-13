@@ -4,12 +4,17 @@ use base 'FixMyStreet::Cobrand::UK';
 use strict;
 use warnings;
 
-use mySociety::Random;
-
 use constant COUNCIL_ID_BROMLEY => 2482;
 use constant COUNCIL_ID_ISLEOFWIGHT => 2636;
 
 sub on_map_default_status { return 'open'; }
+
+# Show TfL pins as grey
+sub pin_colour {
+    my ( $self, $p, $context ) = @_;
+    return 'grey' if $p->to_body_named('TfL');
+    return $self->next::method($p, $context);
+}
 
 # Special extra
 sub path_to_web_templates {
@@ -25,17 +30,25 @@ sub path_to_email_templates {
     ];
 }
 
-sub add_response_headers {
-    my $self = shift;
-    # uncoverable branch true
-    return if $self->{c}->debug;
-    my $csp_nonce = $self->{c}->stash->{csp_nonce} = unpack('h*', mySociety::Random::random_bytes(16, 1));
-    $self->{c}->res->header('Content-Security-Policy', "script-src 'self' www.google-analytics.com www.googleadservices.com 'unsafe-inline' 'nonce-$csp_nonce'")
-}
-
 # FixMyStreet should return all cobrands
 sub restriction {
     return {};
+}
+
+# FixMyStreet needs to not show TfL reports...
+sub problems_restriction {
+    my ($self, $rs) = @_;
+    my $table = ref $rs eq 'FixMyStreet::DB::ResultSet::Nearby' ? 'problem' : 'me';
+    return $rs->search({ "$table.cobrand" => { '!=' => 'tfl' } });
+}
+sub problems_sql_restriction {
+    my $self = shift;
+    return "AND cobrand != 'tfl'";
+}
+
+sub relative_url_for_report {
+    my ( $self, $report ) = @_;
+    return $report->cobrand eq 'tfl' ? FixMyStreet::Cobrand::TfL->base_url : "";
 }
 
 sub munge_around_category_where {
@@ -73,11 +86,7 @@ sub munge_reports_categories_list {
 sub munge_report_new_category_list {
     my ($self, $options, $contacts, $extras) = @_;
 
-    # No TfL Traffic Lights category in Hounslow
     my %bodies = map { $_->body->name => $_->body } @$contacts;
-    if ( $bodies{'Hounslow Borough Council'} ) {
-        @$options = grep { ($_->{category} || $_->category) !~ /^Traffic lights$/i } @$options;
-    }
 
     if ( $bodies{'Isle of Wight Council'} ) {
         my $user = $self->{c}->user;
@@ -92,6 +101,13 @@ sub munge_report_new_category_list {
         my $seen = { map { $_->category => 1 } @$contacts };
         @$options = grep { my $c = ($_->{category} || $_->category); $c =~ 'Pick a category' || $seen->{ $c } } @$options;
     }
+
+    if ( $bodies{'TfL'} ) {
+        # Presented categories vary if we're on/off a red route
+        my $tfl = FixMyStreet::Cobrand->get_class_for_moniker( 'tfl' )->new({ c => $self->{c} });
+        $tfl->munge_red_route_categories($options, $contacts);
+    }
+
 }
 
 sub munge_load_and_group_problems {
@@ -99,11 +115,7 @@ sub munge_load_and_group_problems {
 
     return unless $where->{category} && $self->{c}->stash->{body}->name eq 'Isle of Wight Council';
 
-    my $cat_names = $self->expand_triage_cat_list($where->{category});
-
-    $where->{category} = $cat_names;
-    my $problems = $self->problems->search($where, $filter);
-    return $problems;
+    $where->{category} = $self->expand_triage_cat_list($where->{category});
 }
 
 sub expand_triage_cat_list {
@@ -262,7 +274,7 @@ sub about_hook {
             if ($body) {
                 # Send confirmation email (hopefully)
                 $c->stash->{template} = 'auth/general.html';
-                $c->detach('/auth/general');
+                $c->detach('/auth/general', []);
             } else {
                 $c->stash->{error} = 'bad_email';
             }
@@ -270,10 +282,8 @@ sub about_hook {
     }
 }
 
-sub updates_disallowed {
-    my $self = shift;
-    my ($problem) = @_;
-    my $c = $self->{c};
+sub updates_disallowed_config {
+    my ($self, $problem) = @_;
 
     # This is a hash of council name to match, and what to do
     my $cfg = $self->feature('updates_allowed') || {};
@@ -287,6 +297,15 @@ sub updates_disallowed {
             last;
         }
     }
+    return ($type, $body);
+}
+
+sub updates_disallowed {
+    my $self = shift;
+    my ($problem) = @_;
+    my $c = $self->{c};
+
+    my ($type, $body) = $self->updates_disallowed_config($problem);
 
     if ($type eq 'none') {
         return 1;
@@ -295,9 +314,12 @@ sub updates_disallowed {
         my $staff = $c->user_exists && $c->user->from_body && $c->user->from_body->name =~ /$body/;
         my $superuser = $c->user_exists && $c->user->is_superuser;
         return 1 unless $staff || $superuser;
-    } elsif ($type eq 'reporter') {
+    }
+
+    if ($type =~ /reporter/) {
         return 1 if !$c->user_exists || $c->user->id != $problem->user->id;
-    } elsif ($type eq 'open') {
+    }
+    if ($type =~ /open/) {
         return 1 if $problem->is_fixed || $problem->is_closed;
     }
 
@@ -312,6 +334,26 @@ sub suppress_reporter_alerts {
         return 1;
     }
     return 0;
+}
+
+sub must_have_2fa {
+    my ($self, $user) = @_;
+    return 1 if $user->is_superuser;
+    return 1 if $user->from_body && $user->from_body->name eq 'TfL';
+    return 0;
+}
+
+sub send_questionnaire {
+    my ($self, $problem) = @_;
+    my $cobrand = $problem->get_cobrand_logged;
+    return 0 if $cobrand->moniker eq 'tfl';
+    return 0 if $problem->to_body_named('TfL');
+    return 1;
+}
+
+sub update_email_shortlisted_user {
+    my ($self, $update) = @_;
+    FixMyStreet::Cobrand::TfL::update_email_shortlisted_user($self, $update);
 }
 
 1;

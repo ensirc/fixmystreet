@@ -3,6 +3,7 @@ use FixMyStreet::TestMech;
 my $mech = FixMyStreet::TestMech->new;
 
 my $user = $mech->create_user_ok('test@example.com', name => 'Test User');
+my $original_user_id = $user->id; # For log later
 my $user2 = $mech->create_user_ok('test2@example.com', name => 'Test User 2');
 my $user3 = $mech->create_user_ok('test3@example.com', name => 'Test User 3');
 
@@ -15,7 +16,7 @@ my $southend = $mech->create_body_ok(2607, 'Southend-on-Sea Borough Council');
 $mech->log_in_ok( $superuser->email );
 
 subtest 'search abuse' => sub {
-    my $abuse = FixMyStreet::App->model('DB::Abuse')->find_or_create( { email => $user->email } );
+    my $abuse = FixMyStreet::DB->resultset('Abuse')->find_or_create( { email => $user->email } );
     $mech->get_ok( '/admin/users?search=example' );
     $mech->content_like(qr{test\@example.com.*</td>\s*<td>.*?</td>\s*<td>User in abuse table}s);
 };
@@ -26,26 +27,26 @@ subtest 'remove user from abuse list from edit user page' => sub {
 
     $mech->click_ok('unban');
 
-    my $abuse = FixMyStreet::App->model('DB::Abuse')->find( { email => $user->email } );
+    my $abuse = FixMyStreet::DB->resultset('Abuse')->find( { email => $user->email } );
     ok !$abuse, 'record removed from abuse table';
 };
 
 subtest 'remove user with phone account from abuse list from edit user page' => sub {
     my $abuse_user = $mech->create_user_ok('01234 456789');
-    my $abuse = FixMyStreet::App->model('DB::Abuse')->find_or_create( { email => $abuse_user->phone } );
+    my $abuse = FixMyStreet::DB->resultset('Abuse')->find_or_create( { email => $abuse_user->phone } );
     $mech->get_ok( '/admin/users/' . $abuse_user->id );
     $mech->content_contains('User in abuse table');
-    my $abuse_found = FixMyStreet::App->model('DB::Abuse')->find( { email => $abuse_user->phone } );
+    my $abuse_found = FixMyStreet::DB->resultset('Abuse')->find( { email => $abuse_user->phone } );
     ok $abuse_found, 'user in abuse table';
 
     $mech->click_ok('unban');
 
-    $abuse = FixMyStreet::App->model('DB::Abuse')->find( { email => $user->phone } );
+    $abuse = FixMyStreet::DB->resultset('Abuse')->find( { email => $user->phone } );
     ok !$abuse, 'record removed from abuse table';
 };
 
 subtest 'no option to remove user already in abuse list' => sub {
-    my $abuse = FixMyStreet::App->model('DB::Abuse')->find( { email => $user->email } );
+    my $abuse = FixMyStreet::DB->resultset('Abuse')->find( { email => $user->email } );
     $abuse->delete if $abuse;
     $mech->get_ok( '/admin/users/' . $user->id );
     $mech->content_lacks('User in abuse table');
@@ -249,7 +250,6 @@ my %default_perms = (
     "permissions[template_edit]" => undef,
     "permissions[responsepriority_edit]" => undef,
     "permissions[category_edit]" => undef,
-    trusted_bodies => undef,
 );
 
 # Start this section with user having no name
@@ -648,6 +648,27 @@ subtest "can edit list of user's alerts" => sub {
 
 subtest "View timeline" => sub {
     $mech->get_ok('/admin/timeline');
+};
+
+subtest 'View user log' => sub {
+    my $p = FixMyStreet::DB->resultset('Problem')->search({ user_id => $user->id })->first;
+    $user->add_to_planned_reports($p);
+
+    # User 1 created all the reports
+    my $id = $p->id;
+    $mech->get_ok('/admin/users?search=' . $user->email);
+    $mech->follow_link_ok({ text => 'Timeline', n => 2 });
+    $mech->content_like(qr/Problem.*?>$id<\/a> created/);
+    $mech->content_like(qr/Problem.*?>$id<\/a> added to shortlist/);
+
+    # User 3 edited user 2 above
+    $mech->get_ok('/admin/users/' . $user3->id . '/log');
+    $mech->content_like(qr/Edited user.*?test2\@example/);
+
+    # Superuser added a user, and merged one
+    $mech->get_ok('/admin/users/' . $superuser->id . '/log');
+    $mech->content_like(qr/Added user.*?0156/);
+    $mech->content_like(qr/Merged user $original_user_id/);
 };
 
 done_testing();

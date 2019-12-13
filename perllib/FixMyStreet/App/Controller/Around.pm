@@ -235,6 +235,7 @@ sub check_and_stash_category : Private {
     my $csv = Text::CSV->new();
     $csv->combine(@list_of_names);
     $c->stash->{around_bodies} = \@bodies;
+    $c->stash->{bodies_ids} = [ map { $_->id } @bodies];
     $c->{stash}->{list_of_names_as_string} = $csv->string;
 
     my $where  = { body_id => [ keys %bodies ], };
@@ -248,10 +249,9 @@ sub check_and_stash_category : Private {
         $where,
         {
             columns => [ 'category', 'extra' ],
-            order_by => [ 'category' ],
             distinct => 1
         }
-    )->all;
+    )->all_sorted;
     $c->stash->{filter_categories} = \@categories;
     my %categories_mapped = map { $_->category => 1 } @categories;
 

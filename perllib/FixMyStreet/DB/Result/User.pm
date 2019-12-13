@@ -163,9 +163,29 @@ __PACKAGE__->add_columns(
         encode_column => 1,
         encode_class => 'Crypt::Eksblowfish::Bcrypt',
         encode_args => { cost => cost() },
-        encode_check_method => 'check_password',
+        encode_check_method => '_check_password',
     },
 );
+
+sub check_password {
+    my $self = shift;
+    my $cobrand = $self->result_source->schema->cobrand;
+    if ($cobrand->moniker eq 'tfl') {
+        my $col_v = $self->get_extra_metadata('tfl_password');
+        return unless defined $col_v;
+        $self->_column_encoders->{password}->($_[0], $col_v) eq $col_v;
+    } else {
+        $self->_check_password(@_);
+    }
+}
+
+around password => sub {
+    my ($orig, $self) = (shift, shift);
+    if (@_) {
+        $self->set_extra_metadata(last_password_change => time());
+    }
+    $self->$orig(@_);
+};
 
 =head2 username
 
@@ -438,14 +458,11 @@ sub has_permission_to {
     my $cobrand = $self->result_source->schema->cobrand;
     my $cobrand_perms = $cobrand->available_permissions;
     my %available = map { %$_ } values %$cobrand_perms;
-    # The 'trusted' permission is never set in the cobrand's
-    # available_permissions (see note there in Default.pm) so include it here.
-    $available{trusted} = 1;
     return 0 unless $available{$permission_type};
 
     return 1 if $self->is_superuser;
-    return 0 if !$body_ids || (ref $body_ids && !@$body_ids);
-    $body_ids = [ $body_ids ] unless ref $body_ids;
+    return 0 if !$body_ids || (ref $body_ids eq 'ARRAY' && !@$body_ids);
+    $body_ids = [ $body_ids ] unless ref $body_ids eq 'ARRAY';
     my %body_ids = map { $_ => 1 } @$body_ids;
 
     foreach (@{$self->body_permissions}) {
@@ -498,7 +515,7 @@ sub admin_user_body_permissions {
 
 sub has_2fa {
     my $self = shift;
-    return $self->is_superuser && $self->get_extra_metadata('2fa_secret');
+    return $self->get_extra_metadata('2fa_secret');
 }
 
 sub contributing_as {
@@ -598,14 +615,6 @@ sub is_planned_report {
     my ($self, $problem) = @_;
     my $id = $problem->id;
     return scalar grep { $_->report_id == $id } @{$self->active_user_planned_reports};
-}
-
-sub update_reputation {
-    my ( $self, $change ) = @_;
-
-    my $reputation = $self->get_extra_metadata('reputation') || 0;
-    $self->set_extra_metadata( reputation => $reputation + $change);
-    $self->update;
 }
 
 has categories => (

@@ -201,6 +201,27 @@ fixmystreet.assets.add(fixmystreet.maps.banes_defaults, {
         attribute: 'usrn',
         field: 'site_code'
     },
+    road: true,
+    asset_item: "road",
+    asset_type: 'road',
+    all_categories: true, // Not really, but want to allow on all but one, not stop
+    no_asset_msg_id: '#js-not-a-road',
+    cat_map: {
+      'Damage to pavement': 'pavement',
+      'Damage to road': 'road'
+    },
+    actions: {
+        found: fixmystreet.message_controller.road_found,
+        not_found: function(layer) {
+            var cat = $('select#form_category').val();
+            if (cat === 'Damage to pavement' || cat === 'Damage to road') {
+                layer.fixmystreet.asset_item = layer.fixmystreet.cat_map[cat];
+                fixmystreet.message_controller.road_not_found(layer);
+            } else {
+                fixmystreet.message_controller.road_found(layer);
+            }
+        }
+    },
     name: "Adopted Highways",
     attribution: " © Crown Copyright. All rights reserved. 1000233344"
 });

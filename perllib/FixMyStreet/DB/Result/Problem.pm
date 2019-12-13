@@ -201,6 +201,8 @@ use Moo;
 use namespace::clean -except => [ 'meta' ];
 use Utils;
 use FixMyStreet::Map::FMS;
+use FixMyStreet::Template;
+use FixMyStreet::Template::SafeString;
 use LWP::Simple qw($ua);
 use RABX;
 use URI;
@@ -338,6 +340,7 @@ around service => sub {
 sub title_safe {
     my $self = shift;
     return _('Awaiting moderation') if $self->cobrand eq 'zurich' && $self->state eq 'submitted';
+    return sprintf("%s problem", $self->category) if $self->cobrand eq 'tfl' && $self->result_source->schema->cobrand->moniker ne 'tfl';
     return $self->title;
 }
 
@@ -404,7 +407,28 @@ sub confirm {
 
 sub category_display {
     my $self = shift;
-    $self->translate_column('category');
+    my $contact = $self->category_row;
+    return $self->category unless $contact; # Fallback; shouldn't happen, but some tests
+    return $contact->category_display;
+}
+
+=head2 category_row
+
+Returns the corresponding Contact object for this problem's category and body.
+If the report was sent to multiple bodies, only returns the first.
+
+=cut
+
+sub category_row {
+    my $self = shift;
+    my $schema = $self->result_source->schema;
+    my $body_id = $self->bodies_str_ids->[0];
+    return unless $body_id && $body_id =~ /^[0-9]+$/;
+    my $contact = $schema->resultset("Contact")->find({
+        body_id => $body_id,
+        category => $self->category,
+    });
+    return $contact;
 }
 
 sub bodies_str_ids {
@@ -648,16 +672,16 @@ sub body {
             my $cache = $problem->result_source->schema->cache;
             return $cache->{bodies}{$problem->external_body} //= $c->model('DB::Body')->find({ id => $problem->external_body });
         } else {
-            $body = $problem->external_body;
+            $body = FixMyStreet::Template::html_filter($problem->external_body);
         }
     } else {
         my $bodies = $problem->bodies;
         my @body_names = sort map {
             my $name = $_->name;
             if ($c and FixMyStreet->config('AREA_LINKS_FROM_PROBLEMS')) {
-                '<a href="' . $_->url . '">' . $name . '</a>';
+                '<a href="' . $_->url . '">' . FixMyStreet::Template::html_filter($name) . '</a>';
             } else {
-                $name;
+                FixMyStreet::Template::html_filter($name);
             }
         } values %$bodies;
         if ( scalar @body_names > 2 ) {
@@ -667,7 +691,7 @@ sub body {
             $body = join( _(' and '), @body_names);
         }
     }
-    return $body;
+    return FixMyStreet::Template::SafeString->new($body);
 }
 
 
@@ -757,17 +781,20 @@ sub can_display_external_id {
     return 0;
 }
 
+# This can return HTML and is safe, so returns a FixMyStreet::Template::SafeString
 sub duration_string {
     my ( $problem, $c ) = @_;
     my $body = $c->cobrand->call_hook(link_to_council_cobrand => $problem) || $problem->body($c);
     my $handler = $c->cobrand->call_hook(get_body_handler_for_problem => $problem);
     if ( $handler && $handler->call_hook('is_council_with_case_management') ) {
-        return sprintf(_('Received by %s moments later'), $body);
+        my $s = sprintf(_('Received by %s moments later'), $body);
+        return FixMyStreet::Template::SafeString->new($s);
     }
     return unless $problem->whensent;
-    return sprintf(_('Sent to %s %s later'), $body,
+    my $s = sprintf(_('Sent to %s %s later'), $body,
         Utils::prettify_duration($problem->whensent->epoch - $problem->confirmed->epoch, 'minute')
     );
+    return FixMyStreet::Template::SafeString->new($s);
 }
 
 sub local_coords {
@@ -885,6 +912,8 @@ bodies by some mechanism. Right now that mechanism is Open311.
 
 sub updates_sent_to_body {
     my $self = shift;
+
+    return 1 if $self->to_body_named('TfL');
     return unless $self->send_method_used && $self->send_method_used =~ /Open311/;
 
     # Some bodies only send updates *to* FMS, they don't receive updates.
@@ -1011,6 +1040,7 @@ sub pin_data {
         problem => $self,
         draggable => $opts{draggable},
         type => $opts{type},
+        base_url => $c->cobrand->relative_url_for_report($self),
     }
 };
 

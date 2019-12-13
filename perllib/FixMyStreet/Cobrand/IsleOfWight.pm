@@ -4,6 +4,9 @@ use parent 'FixMyStreet::Cobrand::Whitelabel';
 use strict;
 use warnings;
 
+use Moo;
+with 'FixMyStreet::Roles::ConfirmOpen311';
+
 sub council_area_id { 2636 }
 sub council_area { 'Isle of Wight' }
 sub council_name { 'Island Roads' }
@@ -47,14 +50,7 @@ sub updates_disallowed {
 
 # Island Roads don't want any reports made before their go-live date visible on
 # their cobrand at all.
-sub problems_restriction {
-    my ($self, $rs) = @_;
-    return $rs if FixMyStreet->config('STAGING_SITE') or FixMyStreet->test_mode;
-    my $table = ref $rs eq 'FixMyStreet::DB::ResultSet::Nearby' ? 'problem' : 'me';
-    return $rs->to_body($self->body)->search({
-      "$table.confirmed" => { '>=', '2019-09-30' }
-    });
-}
+sub cut_off_date { '2019-09-30' }
 
 sub get_geocoder { 'OSM' }
 
@@ -76,29 +72,6 @@ sub open311_pre_send {
         @$extra = grep { $_->{name} ne 'urgent' } @$extra;
         $row->set_extra_fields(@$extra);
     }
-}
-
-sub open311_config {
-    my ($self, $row, $h, $params) = @_;
-
-    my $extra = $row->get_extra_fields;
-    push @$extra,
-        { name => 'report_url',
-          value => $h->{url} },
-        { name => 'title',
-          value => $row->title },
-        { name => 'description',
-          value => $row->detail };
-
-    if (!$row->get_extra_field_value('site_code')) {
-        if (my $site_code = $self->lookup_site_code($row)) {
-            push @$extra,
-                { name => 'site_code',
-                value => $site_code };
-        }
-    }
-
-    $row->set_extra_fields(@$extra);
 }
 
 # Make sure fetched report description isn't shown.
@@ -173,11 +146,7 @@ sub munge_load_and_group_problems {
 
     return unless $where->{category};
 
-    my $cat_names = $self->expand_triage_cat_list($where->{category});
-
-    $where->{category} = $cat_names;
-    my $problems = $self->problems->search($where, $filter);
-    return $problems;
+    $where->{category} = $self->expand_triage_cat_list($where->{category});
 }
 
 sub munge_around_filter_category_list {

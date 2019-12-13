@@ -4,6 +4,7 @@ use Moose;
 use namespace::autoclean;
 BEGIN { extends 'Catalyst::Controller'; }
 
+use utf8;
 use Path::Class;
 use List::Util 'first';
 use Utils;
@@ -143,7 +144,7 @@ sub process_user : Private {
             oauth_update => { $update->get_inflated_columns }
         };
         unless ( $c->forward( '/auth/sign_in', [ $params{username} ] ) ) {
-            $c->stash->{field_errors}->{password} = _('There was a problem with your login information. If you cannot remember your password, or do not have one, please fill in the &lsquo;No&rsquo; section of the form.');
+            $c->stash->{field_errors}->{password} = _('There was a problem with your login information. If you cannot remember your password, or do not have one, please fill in the ‘No’ section of the form.');
             return 1;
         }
         my $user = $c->user->obj;
@@ -501,7 +502,7 @@ sub redirect_or_confirm_creation : Private {
         return 1;
     }
 
-    # Superusers using 2FA can not log in by code
+    # People using 2FA can not log in by code
     $c->detach( '/page_error_403_access_denied', [] ) if $update->user->has_2fa;
 
     my $data = $c->stash->{token_data};
@@ -640,6 +641,8 @@ sub signup_for_alerts : Private {
     } elsif ( my $alert = $user->alert_for_problem($problem_id) ) {
         $alert->disable();
     }
+
+    $c->cobrand->call_hook(update_email_shortlisted_user => $update);
 
     return 1;
 }

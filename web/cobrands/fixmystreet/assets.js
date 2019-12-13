@@ -22,6 +22,7 @@ OpenLayers.Layer.VectorAsset = OpenLayers.Class(OpenLayers.Layer.Vector, {
         // Update layer based upon new data from category change
         $(fixmystreet).on('assets:selected', this.checkSelected.bind(this));
         $(fixmystreet).on('assets:unselected', this.checkSelected.bind(this));
+        $(fixmystreet).on('report_new:category_change', this.changeCategory.bind(this));
         $(fixmystreet).on('report_new:category_change', this.update_layer_visibility.bind(this));
     },
 
@@ -71,7 +72,10 @@ OpenLayers.Layer.VectorAsset = OpenLayers.Class(OpenLayers.Layer.Vector, {
         if (!fixmystreet.markers.getVisibility() || !(this.getVisibility() && this.inRange)) {
             return;
         }
-        var threshold = this.fixmystreet.snap_threshold || 50; // metres
+        var threshold = 50; // metres
+        if ( this.fixmystreet.snap_threshold || this.fixmystreet.snap_threshold === 0 ) {
+          threshold = this.fixmystreet.snap_threshold;
+        }
         var marker = fixmystreet.markers.features[0];
         if (marker === undefined) {
             // No marker to be found so bail out
@@ -102,6 +106,45 @@ OpenLayers.Layer.VectorAsset = OpenLayers.Class(OpenLayers.Layer.Vector, {
             var zoomLevel = fixmystreet.map.getZoomForResolution(firstVisibleResolution);
             fixmystreet.map.zoomTo(zoomLevel);
         }
+    },
+
+    // It's possible an asset has been selected before a category (e.g. if
+    // assets are showing for a whole category group. So on category change,
+    // make sure we check if any attribute fields need setting. We don't
+    // clear if not, because that might clear e.g. attributes set by a layer
+    // using `usrn`.
+    changeCategory: function() {
+        if (!fixmystreet.map) {
+            return;
+        }
+        var feature = fixmystreet.assets.selectedFeature();
+        if (feature) {
+            this.setAttributeFields(feature);
+        }
+    },
+
+    setAttributeFields: function(feature) {
+        if (!this.fixmystreet.attributes) {
+            return;
+        }
+        // Set the extra fields to the value of the selected feature
+        $.each(this.fixmystreet.attributes, function(field_name, attribute_name) {
+            var $field = $("#form_" + field_name);
+            if (typeof attribute_name === 'function') {
+                $field.val(attribute_name.apply(feature));
+            } else {
+                $field.val(feature.attributes[attribute_name]);
+            }
+        });
+    },
+
+    clearAttributeFields: function() {
+        if (!this.fixmystreet.attributes) {
+            return;
+        }
+        $.each(this.fixmystreet.attributes, function(field_name, attribute_name) {
+            $("#form_" + field_name).val("");
+        });
     },
 
     checkSelected: function(evt, lonlat) {
@@ -163,7 +206,6 @@ OpenLayers.Layer.VectorNearest = OpenLayers.Class(OpenLayers.Layer.VectorAsset, 
     initialize: function(name, options) {
         OpenLayers.Layer.VectorAsset.prototype.initialize.apply(this, arguments);
         $(fixmystreet).on('maps:update_pin', this.checkFeature.bind(this));
-        $(fixmystreet).on('assets:selected', this.checkFeature.bind(this));
         // Update fields/etc from data now available from category change
         $(fixmystreet).on('report_new:category_change', this.changeCategory.bind(this));
     },
@@ -197,14 +239,19 @@ OpenLayers.Layer.VectorNearest = OpenLayers.Class(OpenLayers.Layer.VectorAsset, 
 
     updateUSRNField: function() {
         if (this.fixmystreet.usrn) {
-            var usrn_field = this.fixmystreet.usrn.field;
-            var selected_usrn;
-            if ( this.selected_feature ) {
-                selected_usrn = this.fixmystreet.getUSRN ?
-                    this.fixmystreet.getUSRN(this.selected_feature) :
-                    this.selected_feature.attributes[this.fixmystreet.usrn.attribute];
+            if (!this.fixmystreet.usrn.length) {
+                this.fixmystreet.usrn = [this.fixmystreet.usrn];
             }
-            $("input[name=" + usrn_field + "]").val(selected_usrn);
+            for (var i = 0; i < this.fixmystreet.usrn.length; i++) {
+                var usrn = this.fixmystreet.usrn[i];
+                var selected_usrn;
+                if ( this.selected_feature ) {
+                    selected_usrn = this.fixmystreet.getUSRN ?
+                    this.fixmystreet.getUSRN(this.selected_feature) :
+                    this.selected_feature.attributes[usrn.attribute];
+                }
+                $("input[name=" + usrn.field + "]").val(selected_usrn);
+            }
         }
     },
 
@@ -324,15 +371,6 @@ function asset_selected(e) {
     // Keep track of selection in case layer is reloaded or hidden etc.
     selected_feature = feature.clone();
 
-    // Pick up the USRN for the location of this asset. NB we do this *before*
-    // handling the attributes on the selected feature in case the feature has
-    // its own USRN which should take precedence.
-    $(fixmystreet).trigger('assets:selected', [ lonlat ]);
-
-    if (this.fixmystreet.attributes) {
-        set_fields_from_attributes(this.fixmystreet.attributes, feature);
-    }
-
     // Hide the normal markers layer to keep things simple, but
     // move the green marker to the point of the click to stop
     // it jumping around unexpectedly if the user deselects the asset.
@@ -342,6 +380,10 @@ function asset_selected(e) {
     // Need to ensure the correct coords are used for the report
     fixmystreet.maps.update_pin(lonlat);
 
+    this.setAttributeFields(feature);
+
+    $(fixmystreet).trigger('assets:selected', [ lonlat ]);
+
     // Make sure the marker that was clicked is drawn on top of its neighbours
     layer.eraseFeatures([feature]);
     layer.drawFeature(feature);
@@ -350,28 +392,8 @@ function asset_selected(e) {
 function asset_unselected(e) {
     fixmystreet.markers.setVisibility(true);
     selected_feature = null;
-    if (this.fixmystreet.attributes) {
-        clear_fields_for_attributes(this.fixmystreet.attributes);
-    }
+    this.clearAttributeFields();
     $(fixmystreet).trigger('assets:unselected');
-}
-
-function set_fields_from_attributes(attributes, feature) {
-    // Set the extra fields to the value of the selected feature
-    $.each(attributes, function (field_name, attribute_name) {
-        var $field = $("#form_" + field_name);
-        if (typeof attribute_name === 'function') {
-            $field.val(attribute_name.apply(feature));
-        } else {
-            $field.val(feature.attributes[attribute_name]);
-        }
-    });
-}
-
-function clear_fields_for_attributes(attributes) {
-    $.each(attributes, function (field_name, attribute_name) {
-        $("#form_" + field_name).val("");
-    });
 }
 
 function check_zoom_message_visibility() {
@@ -520,7 +542,7 @@ function construct_protocol_options(options) {
     if (options.http_options !== undefined) {
         protocol_options = options.http_options;
         OpenLayers.Util.applyDefaults(options, {
-            format_class: OpenLayers.Format.GML,
+            format_class: OpenLayers.Format.GML.v3,
             format_options: {}
         });
         if (options.geometryName) {
@@ -582,8 +604,8 @@ function construct_layer_options(options, protocol) {
     }
 
     if (options.filter_key) {
-        // Add this filter to the layer, so it can potentially be used
-        // in the request (though only Bristol currently does this).
+        // Add this filter to the layer, so it can potentially be
+        // used in the request if non-HTTP WFS
         if (OpenLayers.Util.isArray(options.filter_value)) {
             layer_options.filter = new OpenLayers.Filter.Logical({
                 type: OpenLayers.Filter.Logical.OR,
@@ -607,10 +629,11 @@ function construct_layer_options(options, protocol) {
                 value: options.filter_value
             });
         }
-        // Add a strategy filter to the layer, to filter the incoming results
-        // after they are received. Bristol does not need this, but has to ask
-        // for the filter data in its response so it doesn't then disappear.
-        layer_options.strategies.push(new OpenLayers.Strategy.Filter({filter: layer_options.filter}));
+        // If using HTTP WFS, add a strategy filter to the layer,
+        // to filter the incoming results after being received.
+        if (options.http_options) {
+            layer_options.strategies.push(new OpenLayers.Strategy.Filter({filter: layer_options.filter}));
+        }
     }
 
     return layer_options;
@@ -682,19 +705,15 @@ function construct_select_layer_events(asset_layer, options) {
         // attributes of the clicked feature are applied to the extra
         // details form fields first though.
         asset_layer.events.register( 'beforefeatureselected', asset_layer, function(e) {
-            var attributes = this.fixmystreet.attributes;
-            if (attributes) {
-                set_fields_from_attributes(attributes, e.feature);
-            }
+            var that = this;
+            this.setAttributeFields(e.feature);
 
             // The next click on the map may not be on an asset - so
             // clear the fields for this layer when the pin is next
             // updated. If it is on an asset then the fields will be
             // set by whatever feature was selected.
             $(fixmystreet).one('maps:update_pin', function() {
-                if (attributes) {
-                    clear_fields_for_attributes(attributes);
-                }
+                that.clearAttributeFields();
             });
             return false;
         });
@@ -793,6 +812,7 @@ fixmystreet.assets = {
         options = $.extend(true, {}, default_options, options);
         var asset_layer = this.add_layer(options);
         this.add_controls([asset_layer], options);
+        return asset_layer;
     },
 
     add_layer: function(options) {
@@ -1102,7 +1122,6 @@ fixmystreet.message_controller = (function() {
     }
 
     function is_matching_stopper(stopper, i) {
-        var only_send = fixmystreet.body_overrides.get_only_send();
         var body = $('#form_category').data('body');
 
         if (OpenLayers.Util.indexOf(ignored_bodies, body) > -1) {
@@ -1111,9 +1130,6 @@ fixmystreet.message_controller = (function() {
 
         var category = $('#form_category').val();
         if (category != stopper.category) {
-            return false;
-        }
-        if (only_send == 'TfL') {
             return false;
         }
 
@@ -1172,6 +1188,7 @@ fixmystreet.message_controller = (function() {
             } else {
                 $msg.insertBefore('#js-post-category-messages');
             }
+            $msg[0].scrollIntoView();
         }
         disable_report_form(stopper.keep_category_extras);
     }
@@ -1195,11 +1212,11 @@ fixmystreet.message_controller = (function() {
             return ($('#' + stopperId).length);
         },
 
-        asset_not_found: function(layer) {
-            if (!layer.visibility) {
+        asset_not_found: function() {
+            if (!this.visibility) {
                 responsibility_off();
             } else {
-                responsibility_on('#js-not-an-asset', layer.fixmystreet.asset_item, layer.fixmystreet.asset_type);
+                responsibility_on('#js-not-an-asset', this.fixmystreet.asset_item, this.fixmystreet.asset_type);
             }
         },
 

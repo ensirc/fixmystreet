@@ -45,6 +45,7 @@ sub index : Path : Args(0) {
     }
     $c->stash->{body} = $c->forward('/reports/body_find', [ $c->cobrand->council_area ]);
     $c->forward( 'stash_report_filter_status' );
+    $c->forward('/reports/stash_report_sort', [ $c->cobrand->reports_ordering ]);
     $c->forward( '/reports/load_and_group_problems' );
     $c->stash->{page} = 'reports'; # So the map knows to make clickable pins
 
@@ -56,8 +57,7 @@ sub index : Path : Args(0) {
     my @categories = $c->stash->{body}->contacts->not_deleted->search( undef, {
         columns => [ 'id', 'category', 'extra' ],
         distinct => 1,
-        order_by => [ 'category' ],
-    } )->all;
+    } )->all_sorted;
     $c->stash->{filter_categories} = \@categories;
     $c->stash->{filter_category} = { map { $_ => 1 } $c->get_param_list('filter_category', 1) };
     my $pins = $c->stash->{pins} || [];
@@ -113,7 +113,7 @@ sub update : Private {
     my $current_category = $problem->category;
     my $new_category = $c->get_param('category');
 
-    my $changed = $c->forward('/admin/report_edit_category', [ $problem, 1 ] );
+    my $changed = $c->forward('/admin/reports/edit_category', [ $problem, 1 ] );
 
     if ( $changed ) {
         $c->stash->{problem}->update( { state => 'confirmed' } );

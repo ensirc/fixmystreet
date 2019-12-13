@@ -14,6 +14,7 @@ use Digest::MD5 qw(md5_hex);
 
 use Carp;
 use mySociety::PostcodeUtil;
+use mySociety::Random;
 
 =head1 The default cobrand
 
@@ -72,6 +73,22 @@ sub feature {
     return unless $features && ref $features eq 'HASH';
     return unless $features->{$feature} && ref $features->{$feature} eq 'HASH';
     return $features->{$feature}->{$self->moniker};
+}
+
+sub csp_config {
+    FixMyStreet->config('CONTENT_SECURITY_POLICY');
+}
+
+sub add_response_headers {
+    my $self = shift;
+    # uncoverable branch true
+    return if $self->{c}->debug;
+    if (my $csp_domains = $self->csp_config) {
+        $csp_domains = '' if $csp_domains eq '1';
+        $csp_domains = join(' ', @$csp_domains) if ref $csp_domains;
+        my $csp_nonce = $self->{c}->stash->{csp_nonce} = unpack('h*', mySociety::Random::random_bytes(16, 1));
+        $self->{c}->res->header('Content-Security-Policy', "script-src 'self' 'unsafe-inline' 'nonce-$csp_nonce' $csp_domains; object-src 'none'; base-uri 'none'")
+    }
 }
 
 =item password_minimum_length
@@ -748,12 +765,6 @@ sub available_permissions {
             contribute_as_body => _("Create reports/updates as the council"),
             default_to_body => _("Default to creating reports/updates as the council"),
             view_body_contribute_details => _("See user detail for reports created as the council"),
-
-            # NB this permission is special in that it can be assigned to users
-            # without their from_body being set. It's included here for
-            # reference, but left commented out because it's not assigned in the
-            # same way as other permissions.
-            # trusted => _("Trusted to make reports that don't need to be inspected"),
         },
         _("Users") => {
             user_edit => _("Edit users' details/search for their reports"),
@@ -779,15 +790,32 @@ The MaPit types this site handles
 sub area_types          { FixMyStreet->config('MAPIT_TYPES') || [ 'ZZZ' ] }
 sub area_types_children { FixMyStreet->config('MAPIT_TYPES_CHILDREN') || [] }
 
-=item contact_name, contact_email
+=item fetch_area_children
+
+Fetches the children of a particular MapIt area ID that match the current
+cobrand's area_types_children type.
+
+=cut
+
+sub fetch_area_children {
+    my ($self, $area_id) = @_;
+
+    return FixMyStreet::MapIt::call('area/children', $area_id,
+        type => $self->area_types_children
+    );
+}
+
+=item contact_name, contact_email, do_not_reply_email
 
 Return the contact name or email for the cobranded version of the site (to be
-used in emails).
+used in emails). do_not_reply_email is used for emails you don't expect a reply
+to (for example, confirmation emails).
 
 =cut
 
 sub contact_name  { FixMyStreet->config('CONTACT_NAME') }
 sub contact_email { FixMyStreet->config('CONTACT_EMAIL') }
+sub do_not_reply_email { FixMyStreet->config('DO_NOT_REPLY_EMAIL') }
 
 =item abuse_reports_only
 
@@ -1226,16 +1254,6 @@ sub category_extra_hidden {
     return 1 if ($meta->{automated} || '') eq 'hidden_field';
     return 0;
 }
-
-=item reputation_increment_states/reputation_decrement_states
-
-Get a hashref of states that cause the reporting user's reputation to be
-incremented/decremented, if a report is changed to this state upon inspection.
-
-=cut
-
-sub reputation_increment_states { {} };
-sub reputation_decrement_states { {} };
 
 sub traffic_management_options {
     return [

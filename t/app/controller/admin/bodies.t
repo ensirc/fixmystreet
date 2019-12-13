@@ -51,7 +51,7 @@ subtest 'check contact creation' => sub {
         non_public => 'on',
     } } );
     $mech->get_ok('/admin/body/' . $body->id . '/test/category');
-    $mech->content_contains('<h1>test/category</h1>');
+    $mech->content_contains('test/category');
 };
 
 subtest 'check contact editing' => sub {
@@ -91,6 +91,21 @@ subtest 'check contact editing' => sub {
     $mech->content_contains( '<td><strong>test2@example.com' );
 };
 
+subtest 'check contact renaming' => sub {
+    my ($report) = $mech->create_problems_for_body(1, $body->id, 'Title', { category => 'test category' });
+    $mech->get_ok('/admin/body/' . $body->id .'/test%20category');
+    $mech->submit_form_ok( { with_fields => { category => 'private category' } } );
+    $mech->content_contains('You cannot rename');
+    $mech->submit_form_ok( { with_fields => { category => 'testing category' } } );
+    $mech->content_contains( 'testing category' );
+    $mech->get('/admin/body/' . $body->id . '/test%20category');
+    is $mech->res->code, 404;
+    $mech->get_ok('/admin/body/' . $body->id . '/testing%20category');
+    $report->discard_changes;
+    is $report->category, 'testing category';
+    $mech->submit_form_ok( { with_fields => { category => 'test category' } } );
+};
+
 subtest 'check contact updating' => sub {
     $mech->get_ok('/admin/body/' . $body->id . '/test%20category');
     $mech->content_like(qr{test2\@example.com</strong>[^<]*</td>[^<]*<td>unconfirmed}s);
@@ -127,7 +142,7 @@ subtest 'check open311 configuring' => sub {
     $mech->content_contains('Council contacts configured via Open311');
     $mech->content_contains('Values updated');
 
-    my $conf = FixMyStreet::App->model('DB::Body')->find( $body->id );
+    my $conf = FixMyStreet::DB->resultset('Body')->find( $body->id );
     is $conf->endpoint, 'http://example.com/open311', 'endpoint configured';
     is $conf->api_key, 'api key', 'api key configured';
     is $conf->jurisdiction, 'mySociety', 'jurisdiction configures';
@@ -147,7 +162,7 @@ subtest 'check open311 configuring' => sub {
 
     $mech->content_contains('Values updated');
 
-    $conf = FixMyStreet::App->model('DB::Body')->find( $body->id );
+    $conf = FixMyStreet::DB->resultset('Body')->find( $body->id );
     is $conf->endpoint, 'http://example.org/open311', 'endpoint updated';
     is $conf->api_key, 'new api key', 'api key updated';
     is $conf->jurisdiction, 'open311', 'jurisdiction configures';
@@ -169,7 +184,7 @@ subtest 'check open311 configuring' => sub {
 
     $mech->content_contains('Values updated');
 
-    $conf = FixMyStreet::App->model('DB::Body')->find( $body->id );
+    $conf = FixMyStreet::DB->resultset('Body')->find( $body->id );
     ok $conf->get_extra_metadata('fetch_all_problems'), 'fetch all problems set';
 
     $mech->form_number(3);
@@ -189,7 +204,7 @@ subtest 'check open311 configuring' => sub {
 
     $mech->content_contains('Values updated');
 
-    $conf = FixMyStreet::App->model('DB::Body')->find( $body->id );
+    $conf = FixMyStreet::DB->resultset('Body')->find( $body->id );
     ok !$conf->get_extra_metadata('fetch_all_problems'), 'fetch all problems unset';
 };
 
@@ -310,6 +325,13 @@ FixMyStreet::override_config {
         my $contact = $body->contacts->find({ category => 'grouped category' });
         is_deeply $contact->get_extra_metadata('group'), ['group a', 'group b'], "group stored correctly";
     };
+};
+
+subtest 'check log of the above' => sub {
+    $mech->get_ok('/admin/users/' . $superuser->id . '/log');
+    $mech->content_contains('Added category <a href="/admin/body/' . $body->id . '/test/category">test/category</a>');
+    $mech->content_contains('Edited category <a href="/admin/body/' . $body->id . '/test category">test category</a>');
+    $mech->content_contains('Edited body <a href="/admin/body/' . $body->id . '">Aberdeen City Council</a>');
 };
 
 done_testing();

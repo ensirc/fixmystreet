@@ -14,7 +14,6 @@ var defaults = {
             SRSNAME: "urn:ogc:def:crs:EPSG::27700"
         }
     },
-    format_class: OpenLayers.Format.GML.v3.MultiCurveFix,
     asset_type: 'spot',
     max_resolution: {
       'buckinghamshire': 2.116670900008467,
@@ -193,6 +192,7 @@ var bucks_types = [
     "3B", // HW: SECONDARY DISTRIBUTOR
     "4A", // HW: LINK ROAD
     "4B", // HW: LOCAL ACCESS ROAD
+    "9", // HW: NO CARRIAGEWAY
     "98", // HW: METALLED PUBLIC FOOTPATH
     "99"  // HW: METALLED PUBLIC BRIDLEWAY
 ];

@@ -46,6 +46,9 @@ sub send(;$) {
         my $cobrand = $row->get_cobrand_logged;
         FixMyStreet::DB->schema->cobrand($cobrand);
 
+        # Also get a cobrand that handles where a report is going
+        my $cobrand_handler = $cobrand->call_hook(get_body_handler_for_problem => $row) || $cobrand;
+
         if ($debug_mode) {
             $debug_unsent_count++;
             print "\n";
@@ -62,7 +65,7 @@ sub send(;$) {
         }
 
         $cobrand->set_lang_and_domain($row->lang, 1);
-        FixMyStreet::Map::set_map_class($cobrand->map_type);
+        FixMyStreet::Map::set_map_class($cobrand_handler->map_type);
         if ( $row->is_from_abuser) {
             $row->update( { state => 'hidden' } );
             debug_print("hiding because its sender is flagged as an abuser", $row->id) if $debug_mode;
@@ -74,7 +77,7 @@ sub send(;$) {
         }
 
         # Template variables for the email
-        my $email_base_url = $cobrand->base_url_for_report($row);
+        my $email_base_url = $cobrand_handler->base_url_for_report($row);
         my %h = map { $_ => $row->$_ } qw/id title detail name category latitude longitude used_map/;
         $h{report} = $row;
         $h{cobrand} = $cobrand;
@@ -84,7 +87,7 @@ sub send(;$) {
 
         $h{query} = $row->postcode;
         $h{url} = $email_base_url . $row->url;
-        $h{admin_url} = $row->admin_url($cobrand);
+        $h{admin_url} = $row->admin_url($cobrand_handler);
         if ($row->photo) {
             $h{has_photo} = _("This web page also contains a photo of the problem, provided by the user.") . "\n\n";
             $h{image_url} = $email_base_url . $row->photos->[0]->{url_full};
@@ -126,19 +129,12 @@ sub send(;$) {
             $missing = join(' / ', @missing) if @missing;
         }
 
-        my $send_confirmation_email = $cobrand->report_sent_confirmation_email;
+        my $send_confirmation_email = $cobrand_handler->report_sent_confirmation_email;
 
         my @dear;
         my %reporters = ();
         my $skip = 0;
         while (my $body = $bodies->next) {
-            # See if this body wants confirmation email (in case report made on national site, for example)
-            if (my $cobrand_body = $body->get_cobrand_handler) {
-                if (my $id_ref = $cobrand_body->report_sent_confirmation_email) {
-                    $send_confirmation_email = $id_ref;
-                }
-            }
-
             my $sender_info = $cobrand->get_body_sender( $body, $row->category );
             my $sender = "FixMyStreet::SendReport::" . $sender_info->{method};
 
@@ -147,25 +143,6 @@ sub send(;$) {
                 next;
             }
             $reporters{ $sender } ||= $sender->new();
-
-            my $inspection_required = $sender_info->{contact}
-                ? $sender_info->{contact}->get_extra_metadata('inspection_required')
-                : undef;
-            if ( $inspection_required ) {
-                my $reputation_threshold = $sender_info->{contact}->get_extra_metadata('reputation_threshold') || 0;
-                my $reputation_threshold_met = 0;
-                if ( $reputation_threshold > 0 ) {
-                    my $user_reputation = $row->user->get_extra_metadata('reputation') || 0;
-                    $reputation_threshold_met = $user_reputation >= $reputation_threshold;
-                }
-                unless (
-                        $row->user->has_permission_to( trusted => $row->bodies_str_ids ) ||
-                        $reputation_threshold_met
-                ) {
-                    $skip = 1;
-                    debug_print("skipped because not yet inspected", $row->id) if $debug_mode;
-                }
-            }
 
             if ( $reporters{ $sender }->should_skip( $row, $debug_mode ) ) {
                 $skip = 1;

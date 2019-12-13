@@ -496,7 +496,7 @@ small#or:after {
 
 .change_location {
     color: #666;
-    margin: 0;
+    margin: 0 0 1em;
 
     // No need for this element on mobile, where they can't click the map,
     // and there's already a "Report" button in the header that leads to
@@ -658,6 +658,19 @@ ul.error {
 }
 
 /*** LAYOUT ***/
+
+.dev-site-notice {
+    font-size: 1.5em;
+    color: #fff;
+    background-color: #f00;
+    position: absolute;
+    padding: 1em 5em;
+    top: 1em;
+    left: -5em;
+    transform: rotate(-45deg);
+    z-index: 2;
+    pointer-events: none;
+}
 
 // Padding creates page margins on mobile
 .container {
@@ -2117,10 +2130,8 @@ label .muted {
   display: inline-block;
 }
 
-#problem_form {
-  & > label:first-child {
+#form_category_row > label:first-child {
     margin-top: 0;
-  }
 }
 
 .box-warning,
@@ -2465,7 +2476,7 @@ a#geolocate_link.loading, .btn--geolocate.loading {
     padding-#{$left}: 24px;
 
     // Close up space between this and #rss_local
-    margin-top: -1em;
+    margin-top: -0.5em;
 }
 
 .confirmation-header {

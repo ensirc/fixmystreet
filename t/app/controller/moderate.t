@@ -12,6 +12,8 @@ sub moderate_permission_title { 0 }
 
 package main;
 
+use Path::Tiny;
+use File::Temp 'tempdir';
 use FixMyStreet::TestMech;
 
 my $mech = FixMyStreet::TestMech->new;
@@ -172,23 +174,42 @@ subtest 'Problem moderation' => sub {
     };
 
     subtest 'Hide photo' => sub {
-        $mech->content_contains('Photo of this report');
+        my $UPLOAD_DIR = tempdir( CLEANUP => 1 );
 
-        $mech->submit_form_ok({ with_fields => {
-            %problem_prepopulated,
-            problem_photo => 0,
-        }});
-        $mech->base_like( qr{\Q$REPORT_URL\E} );
+        FixMyStreet::override_config {
+            PHOTO_STORAGE_BACKEND => 'FileSystem',
+            PHOTO_STORAGE_OPTIONS => {
+                UPLOAD_DIR => $UPLOAD_DIR,
+            },
+        }, sub {
+            my $image_path = path('t/app/controller/sample.jpg');
+            $image_path->copy( path($UPLOAD_DIR, '74e3362283b6ef0c48686fb0e161da4043bbcc97.jpeg') );
 
-        $mech->content_lacks('Photo of this report');
+            $mech->get_ok('/photo/' . $report->id . '.0.jpeg');
 
-        $mech->submit_form_ok({ with_fields => {
-            %problem_prepopulated,
-            problem_photo => 1,
-        }});
-        $mech->base_like( qr{\Q$REPORT_URL\E} );
+            $mech->get_ok($REPORT_URL);
+            $mech->content_contains('Photo of this report');
 
-        $mech->content_contains('Photo of this report');
+            $mech->submit_form_ok({ with_fields => {
+                %problem_prepopulated,
+                problem_photo => 0,
+            }});
+            $mech->base_like( qr{\Q$REPORT_URL\E} );
+
+            my $res = $mech->get('/photo/' . $report->id . '.0.jpeg');
+            is $res->code, 404, 'got 404';
+
+            $mech->get_ok($REPORT_URL);
+            $mech->content_lacks('Photo of this report');
+
+            $mech->submit_form_ok({ with_fields => {
+                %problem_prepopulated,
+                problem_photo => 1,
+            }});
+            $mech->base_like( qr{\Q$REPORT_URL\E} );
+
+            $mech->content_contains('Photo of this report');
+        };
     };
 
     subtest 'Hide report' => sub {
@@ -475,8 +496,6 @@ subtest 'updates' => sub {
         }});
         $mech->content_lacks('update good good bad good');
     };
-
-    $update->moderation_original_data->delete;
 };
 
 my $update2 = create_update();
@@ -515,4 +534,14 @@ subtest 'And do it as a superuser' => sub {
 subtest 'Check moderation history in admin' => sub {
     $mech->get_ok('/admin/report_edit/' . $report->id);
 };
+
+subtest 'Check moderation in user log' => sub {
+    $mech->get_ok('/admin/users/' . $user->id . '/log');
+    my $report_id = $report->id;
+    $mech->content_like(qr/Moderated report.*?$report_id/);
+    my $update_id = $update->id;
+    $mech->content_like(qr/Moderated update.*?$update_id/);
+};
+
+
 done_testing();

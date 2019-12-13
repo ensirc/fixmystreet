@@ -13,6 +13,7 @@ use FixMyStreet::Email::Sender;
 use FixMyStreet::PhotoStorage;
 use Utils;
 
+use FixMyStreet::Auth::GoogleAuth;
 use Path::Tiny 'path';
 use Try::Tiny;
 use Text::CSV;
@@ -26,6 +27,7 @@ use Catalyst (
     'Session::State::Cookie',    # FIXME - we're using our own override atm
     'Authentication',
     'SmartURI',
+    'FixMyStreet::Session::RotateSession',
     'FixMyStreet::Session::StoreSessions',
 );
 
@@ -197,7 +199,7 @@ sub setup_request {
     my $cobrand = $c->cobrand;
     FixMyStreet::DB->schema->cobrand($cobrand);
 
-    $cobrand->call_hook('add_response_headers');
+    $cobrand->add_response_headers;
 
     # append the cobrand templates to the include path
     $c->stash->{additional_template_paths} = $cobrand->path_to_web_templates;
@@ -340,7 +342,7 @@ sub send_email {
     my $template           = shift;
     my $extra_stash_values = shift || {};
 
-    my $sender = $c->config->{DO_NOT_REPLY_EMAIL};
+    my $sender = $c->cobrand->do_not_reply_email;
     my $email = $c->construct_email($template, $extra_stash_values) or return;
 
     my $result = 0;
@@ -358,7 +360,7 @@ sub construct_email {
     my ($c, $template, $extra_stash_values) = @_;
     $extra_stash_values //= {};
 
-    my $sender = $c->config->{DO_NOT_REPLY_EMAIL};
+    my $sender = $c->cobrand->do_not_reply_email;
     my $sender_name = $c->cobrand->contact_name;
 
     # create the vars to pass to the email template
@@ -369,8 +371,9 @@ sub construct_email {
         %$extra_stash_values,
         additional_template_paths => \@include_path,
     };
-    $vars->{site_name} = Utils::trim_text($c->view('Email')->render($c, 'site-name.txt', $vars));
-    $vars->{signature} = $c->view('Email')->render($c, 'signature.txt', $vars);
+    $vars->{site_name} = Utils::trim_text($c->view('EmailText')->render($c, 'site-name.txt', $vars));
+    $vars->{signature} = $c->view('EmailText')->render($c, 'signature.txt', $vars);
+    $vars->{staging} = FixMyStreet->config('STAGING_SITE');
 
     return if FixMyStreet::Email::is_abuser($c->model('DB')->schema, $vars->{to});
 
@@ -384,7 +387,7 @@ sub construct_email {
     $c->log->debug("Error compiling HTML $template: $@") if $@;
 
     my $data = {
-        _body_ => $c->view('Email')->render( $c, $template, $vars ),
+        _body_ => $c->view('EmailText')->render( $c, $template, $vars ),
         _attachments_ => $extra_stash_values->{attachments},
         From => $vars->{from},
         To => $vars->{to},
@@ -514,6 +517,23 @@ Sets the query parameter to the passed variable.
 sub set_param {
     my ($c, $param, $value) = @_;
     $c->req->params->{$param} = $value;
+}
+
+=head2 check_2fa
+
+Given a user's secret, verifies a submitted code.
+
+=cut
+
+sub check_2fa {
+    my ($c, $secret32) = @_;
+
+    if (my $code = $c->get_param('2fa_code')) {
+        my $auth = FixMyStreet::Auth::GoogleAuth->new;
+        return 1 if $auth->verify($code, 2, $secret32);
+        $c->stash->{incorrect_code} = 1;
+    }
+    return 0;
 }
 
 =head1 SEE ALSO

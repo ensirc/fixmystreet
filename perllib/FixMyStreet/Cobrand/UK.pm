@@ -11,6 +11,11 @@ sub country             { return 'GB'; }
 sub area_types          { [ 'DIS', 'LBO', 'MTD', 'UTA', 'CTY', 'COI', 'LGD' ] }
 sub area_types_children { $mySociety::VotingArea::council_child_types }
 
+sub csp_config {
+    my $self = shift;
+    return $self->feature('content_security_policy');
+}
+
 sub enter_postcode_text {
     my ( $self ) = @_;
     return _("Enter a nearby UK postcode, or street name and area");
@@ -107,7 +112,7 @@ sub short_name {
     return 'Durham+County' if $name eq 'Durham County Council';
     return 'Durham+City' if $name eq 'Durham City Council';
 
-    $name =~ s/^London Borough of //;
+    $name =~ s/^(Royal|London) Borough of //;
     $name =~ s/ (Borough|City|District|County) Council$//;
     $name =~ s/ Council$//;
     $name =~ s/ & / and /;
@@ -140,8 +145,8 @@ sub find_closest {
 sub reports_body_check {
     my ( $self, $c, $code ) = @_;
 
-    # Deal with Bexley name not starting with short name
-    if ($code =~ /bexley/i) {
+    # Deal with Bexley and Greenwich name not starting with short name
+    if ($code =~ /bexley|greenwich/i) {
         my $body = $c->model('DB::Body')->search( { name => { -like => "%$code%" } } )->single;
         $c->stash->{body} = $body;
         return $body;
@@ -362,6 +367,10 @@ cobrand class is returned, otherwise the default FixMyStreet cobrand is used.
 sub get_body_handler_for_problem {
     my ($self, $row) = @_;
 
+    if ($row->to_body_named('TfL')) {
+        return FixMyStreet::Cobrand::TfL->new;
+    }
+
     my @bodies = values %{$row->bodies};
     my %areas = map { %{$_->areas} } grep { $_->name ne 'TfL' } @bodies;
 
@@ -406,6 +415,15 @@ sub category_extra_hidden {
     my ($self, $meta) = @_;
     return 1 if $meta->{code} eq 'usrn' || $meta->{code} eq 'asset_id';
     return $self->SUPER::category_extra_hidden($meta);
+}
+
+sub report_new_munge_before_insert {
+    my ($self, $report) = @_;
+
+    if ($report->to_body_named('TfL')) {
+        my $tfl = FixMyStreet::Cobrand->get_class_for_moniker('tfl')->new();
+        $tfl->report_new_munge_before_insert($report);
+    }
 }
 
 1;

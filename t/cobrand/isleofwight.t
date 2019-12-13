@@ -1,5 +1,7 @@
+use utf8;
 use CGI::Simple;
 use DateTime;
+use Test::MockModule;
 use FixMyStreet::TestMech;
 use Open311;
 use Open311::GetServiceRequests;
@@ -7,6 +9,16 @@ use Open311::GetServiceRequestUpdates;
 use Open311::PostServiceRequestUpdates;
 use FixMyStreet::Script::Alerts;
 use FixMyStreet::Script::Reports;
+
+# disable info logs for this test run
+FixMyStreet::App->log->disable('info');
+END { FixMyStreet::App->log->enable('info'); }
+
+my $cobrand = Test::MockModule->new('FixMyStreet::Cobrand::IsleOfWight');
+$cobrand->mock('lookup_site_code', sub {
+    my ($self, $row) = @_;
+    return "Road ID" if $row->latitude == 50.7108;
+});
 
 ok( my $mech = FixMyStreet::TestMech->new, 'Created mech object' );
 
@@ -57,8 +69,8 @@ $admin_user->user_body_permissions->create({
 });
 
 my @reports = $mech->create_problems_for_body(1, $isleofwight->id, 'An Isle of wight report', {
-    confirmed => '2019-05-25 09:00',
-    lastupdate => '2019-05-25 09:00',
+    confirmed => '2019-10-25 09:00',
+    lastupdate => '2019-10-25 09:00',
     latitude => 50.7108,
     longitude => -1.29573,
     user => $user,
@@ -93,6 +105,7 @@ subtest "only original reporter can comment" => sub {
     FixMyStreet::override_config {
         MAPIT_URL => 'http://mapit.uk/',
         ALLOWED_COBRANDS => 'isleofwight',
+        COBRAND_FEATURES => { updates_allowed => { isleofwight => 'reporter' } },
     }, sub {
         $mech->get_ok('/report/' . $reports[0]->id);
         $mech->content_contains('Only the original reporter may leave updates');
@@ -243,7 +256,7 @@ subtest "fixing passes along the correct message" => sub {
 
         my ($p) = $mech->create_problems_for_body(1, $isleofwight->id, 'Title', { external_id => 1 });
 
-        my $c = FixMyStreet::App->model('DB::Comment')->create({
+        my $c = FixMyStreet::DB->resultset('Comment')->create({
             problem => $p, user => $p->user, anonymous => 't', text => 'Update text',
             problem_state => 'fixed - council', state => 'confirmed', mark_fixed => 0,
             confirmed => DateTime->now(),
@@ -290,6 +303,7 @@ subtest 'Check special Open311 request handling', sub {
     my $req = $test_data->{test_req_used};
     my $c = CGI::Simple->new($req->content);
     is $c->param('attribute[urgent]'), undef, 'no urgent param sent';
+    is $c->param('attribute[site_code]'), 'Road ID', 'road ID set';
 
     $mech->email_count_is(1);
     my $email = $mech->get_email;
@@ -359,7 +373,7 @@ subtest "comment recording triage details is not sent" => sub {
 };
 
 my ($p) = $mech->create_problems_for_body(1, $isleofwight->id, '', { cobrand => 'isleofwight' });
-my $alert = FixMyStreet::App->model('DB::Alert')->create( {
+my $alert = FixMyStreet::DB->resultset('Alert')->create( {
     parameter  => $p->id,
     alert_type => 'new_updates',
     user       => $user,
@@ -385,6 +399,37 @@ subtest "sends branded alert emails" => sub {
 
 $p->comments->delete;
 $p->delete;
+
+subtest "check not responsible as correct text" => sub {
+    my ($p) = $mech->create_problems_for_body(
+        1, $isleofwight->id, 'Title',
+        {
+            category => 'Roads',
+            areas => 2636,
+            latitude => 50.71086,
+            longitude => -1.29573,
+            whensent => DateTime->now->add( minutes => -5 ),
+            send_method_used => 'Open311',
+            state => 'not responsible',
+            external_id => 1,
+        });
+
+    my $c = FixMyStreet::DB->resultset('Comment')->create({
+        problem => $p, user => $p->user, anonymous => 't', text => 'Update text',
+        problem_state => 'not responsible', state => 'confirmed', mark_fixed => 0,
+        confirmed => DateTime->now(),
+    });
+    FixMyStreet::override_config {
+        MAPIT_URL => 'http://mapit.uk/',
+        ALLOWED_COBRANDS => ['isleofwight'],
+    }, sub {
+        $mech->get_ok('/report/' . $p->id);
+    };
+
+    $mech->content_contains("not Island Roads’ responsibility", "not reponsible message contains correct text");
+    $p->comments->delete;
+    $p->delete;
+};
 
 subtest "sends branded confirmation emails" => sub {
     $mech->log_out_ok;

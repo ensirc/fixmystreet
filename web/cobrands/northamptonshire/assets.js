@@ -228,6 +228,20 @@ var layers = [
 },
   */
 {
+  "categories": [
+        "Loose / Raised/Sunken",
+        "Broken / Missing",
+        "Blocked - flooding private property",
+        "Blocked - flooding road/path",
+        "Blocked/Damaged",
+  ],
+  "item_name": "drain",
+  "layer_name": "Gully",
+  "layer": 66,
+  "version": "66.80-",
+  "max_resolution": 0.5971642833948135
+},
+{
   "categories": [ "Grit Bin - damaged/replacement", "Grit Bin - empty/refill" ],
   "item_name": "grit bin",
   "layer_name": "Grit Bins",
@@ -240,48 +254,48 @@ var layers = [
   "item_name": 'bridge',
   "layer_name": "Structures",
   "layer": 14,
-  "version": "14.3-"
+  "version": "14.7-"
 },
 {
   "categories": [ "Damaged / Missing / Facing Wrong Way", "Obscured by vegetation or Dirty" ],
   "item_name": "sign",
   "layer_name": "Signs",
   "layer": is_live ? 60 : 303,
-  "version": is_live ? "60.2113-" : "303.1-"
+  "version": is_live ? "60.2172-" : "303.1-"
 },
 {
   "categories": [ "Shelter Damaged", "Sign/Pole Damaged" ],
   "layer_name": "Bus Stop",
   "layer": 72,
-  "version": "72.8-"
+  "version": "72.14-"
 },
 {
   "categories": [ "Bridge-Damaged/ Missing" ],
   "item_name": "bridge or right of way",
   "layer_name": "BRIDGES",
   "layer": 177,
-  "version": "177.18-"
+  "version": "177.40-"
 },
 {
   "categories": [ "Gate - Damaged/ Missing" ],
   "item_name": "gate or right of way",
   "layer_name": "GATE",
   "layer": 181,
-  "version": "181.3-"
+  "version": "181.14-"
 },
 {
   "categories": [ "Stile-Damaged/Missing" ],
   "item_name": "stile or right of way",
   "layer_name": "STILE",
   "layer": 185,
-  "version": "185.3-"
+  "version": "185.10-"
 },
 {
   "categories": [ "Sign/Waymarking - Damaged/Missing" ],
   "item_name": "waymarking or right of way",
   "layer_name": "WAYMARK POST",
   "layer": 187,
-  "version": "187.3-"
+  "version": "187.10-"
 },
 {
   "categories": [
@@ -319,17 +333,20 @@ var layers = [
 },
 {
   "categories": [
-    "Fallen Tree"
+      "Fallen Tree",
+      "Restricted Visibility / Overgrown / Overhanging",
+      "Restricted Visibility"
   ],
   "layer_name": "Tree",
-  "layer": is_live ? 307 : 228,
-  "version": is_live ? "307.1-" : "228.24-"
+  "layer": 307,
+  "version": "307.7-",
+  "snap_threshold": 0,
 },
 {
   "categories": [ "Safety Bollard - Damaged/Missing" ],
   "layer_name": "Safety Bollard",
   "layer": 233,
-  "version": "233.27-"
+  "version": "233.28-"
 },
 ];
 
@@ -397,22 +414,29 @@ var northants_defaults = $.extend(true, {}, fixmystreet.assets.alloy_defaults, {
     },
     asset_not_found: function() {
       $("#overlapping_features_msg").addClass('hidden');
-      fixmystreet.message_controller.asset_not_found(this);
+      fixmystreet.message_controller.asset_not_found.call(this);
     }
   }
 });
 
 $.each(layers, function(index, layer) {
     if ( layer.categories ) {
-        fixmystreet.assets.add(northants_defaults, {
-            http_options: {
-              layerid: layer.layer,
-              layerVersion: layer.version,
-            },
-            asset_type: layer.asset_type || 'spot',
-            asset_category: layer.categories,
-            asset_item: layer.item_name || layer.layer_name.toLowerCase(),
-        });
+        var options = {
+          http_options: {
+            layerid: layer.layer,
+            layerVersion: layer.version,
+          },
+          asset_type: layer.asset_type || 'spot',
+          asset_category: layer.categories,
+          asset_item: layer.item_name || layer.layer_name.toLowerCase(),
+        };
+        if (layer.max_resolution) {
+          options.max_resolution = layer.max_resolution;
+        }
+        if (layer.snap_threshold || layer.snap_threshold === 0) {
+          options.snap_threshold = layer.snap_threshold;
+        }
+        fixmystreet.assets.add(northants_defaults, options);
     }
 });
 
@@ -488,17 +512,12 @@ fixmystreet.assets.add(northants_road_defaults, {
     protocol_class: OpenLayers.Protocol.Alloy,
     http_options: {
       layerid: 20,
-      layerVersion: '20.143-',
+      layerVersion: '20.249-',
     },
     stylemap: new OpenLayers.StyleMap({
         'default': highways_style
     }),
     asset_category: [
-        "Loose / Raised/Sunken",
-        "Broken / Missing",
-        "Blocked - flooding private property",
-        "Blocked - flooding road/path",
-        "Blocked/Damaged",
         "Blocked Ditch",
         "Blocked Ditch Causing Flooding",
         "Obstruction (Not Vegetation)",
@@ -519,6 +538,7 @@ fixmystreet.assets.add(northants_road_defaults, {
         "Icy Footpath",
         "Icy Road",
         "Missed published Gritted Route",
+        "Fallen Tree",
         "Restricted Visibility / Overgrown / Overhanging",
         "Restricted Visibility"
     ]
@@ -535,7 +555,7 @@ var prow_style = new OpenLayers.Style({
 fixmystreet.assets.add(northants_road_defaults, {
     http_options: {
       layerid: 173,
-      layerVersion: '173.1-',
+      layerVersion: '173.3-',
     },
     stylemap: new OpenLayers.StyleMap({
         'default': prow_style

@@ -4,10 +4,10 @@ use Moose;
 use namespace::autoclean;
 BEGIN { extends 'Catalyst::Controller'; }
 
+use utf8;
 use Encode;
 use List::MoreUtils qw(uniq);
 use List::Util 'first';
-use POSIX 'strcoll';
 use HTML::Entities;
 use Path::Class;
 use Utils;
@@ -277,15 +277,20 @@ sub by_category_ajax_data : Private {
         $non_public ? ( non_public => JSON->true ) : (),
     };
 
+    if ( $c->stash->{category_extras}->{$category} && @{ $c->stash->{category_extras}->{$category} } >= 1 ) {
+        my $disable_form = $c->forward('disable_form_message');
+        $body->{disable_form} = $disable_form if %$disable_form;
+
+        # Remove the full disable_form extras, as included in disable form output
+        @{$c->stash->{category_extras}->{$c->stash->{category}}} = grep {
+            !$_->{disable_form} || $_->{disable_form} ne 'true'
+        } @{$c->stash->{category_extras}->{$c->stash->{category}}};
+    }
+
     if (($c->stash->{category_extras}->{$category} && @{ $c->stash->{category_extras}->{$category} } >= 1) or
             $c->stash->{unresponsive}->{$category} or $c->stash->{report_extra_fields}) {
         $body->{category_extra} = $c->render_fragment('report/new/category_extras.html', $vars);
         $body->{category_extra_json} = $c->forward('generate_category_extra_json');
-    }
-
-    if ( $c->stash->{category_extras}->{$category} && @{ $c->stash->{category_extras}->{$category} } >= 1 ) {
-        my $disable_form = $c->forward('disable_form_message');
-        $body->{disable_form} = $disable_form if $disable_form;
     }
 
     my $unresponsive = $c->stash->{unresponsive}->{$category};
@@ -314,6 +319,10 @@ sub disable_form_message : Private {
     my ( $self, $c ) = @_;
 
     my %out;
+
+    # do not set disable form message if they are a staff user
+    return \%out if $c->cobrand->call_hook('staff_ignore_form_disable_form');
+
     foreach (@{$c->stash->{category_extras}->{$c->stash->{category}}}) {
         if ($_->{disable_form} && $_->{disable_form} eq 'true') {
             $out{all} .= ' ' if $out{all};
@@ -328,6 +337,7 @@ sub disable_form_message : Private {
             }
         }
     }
+
     return \%out;
 }
 
@@ -511,9 +521,11 @@ sub initialize_report : Private {
               ->first;
 
             if ($report) {
-                # log the problem creation user in to the site
-                $c->authenticate( { email => $report->user->email, email_verified => 1 },
-                    'no_password' );
+                # log the problem creation user in to the site, if not already logged in
+                if (!$c->user_exists || $c->user->email ne $report->user->email) {
+                    $c->authenticate( { email => $report->user->email, email_verified => 1 },
+                        'no_password' );
+                }
 
                 # save the token to delete at the end
                 $c->stash->{partial_token} = $token if $report;
@@ -677,7 +689,7 @@ sub setup_categories_and_bodies : Private {
       ->model('DB::Contact')    #
       ->active
       ->search( { 'me.body_id' => [ keys %bodies ] }, { prefetch => 'body' } );
-    my @contacts = $c->cobrand->categories_restriction($contacts)->all;
+    my @contacts = $c->cobrand->categories_restriction($contacts)->all_sorted;
 
     # variables to populate
     my %bodies_to_list = ();       # Bodies with categories assigned
@@ -702,9 +714,6 @@ sub setup_categories_and_bodies : Private {
         }
         $c->stash->{unresponsive}{$k} = { map { $_ => 1 } keys %bodies };
     }
-
-    # keysort does not appear to obey locale so use strcoll (see i18n.t)
-    @contacts = sort { strcoll( $a->category, $b->category ) } @contacts;
 
     my %seen;
     foreach my $contact (@contacts) {
@@ -747,6 +756,7 @@ sub setup_categories_and_bodies : Private {
     $c->stash->{bodies} = \%bodies;
     $c->stash->{contacts} = \@contacts;
     $c->stash->{bodies_to_list} = \%bodies_to_list;
+    $c->stash->{bodies_ids} = [ map { $_->id } @bodies];
     $c->stash->{category_options} = \@category_options;
     $c->stash->{category_extras}  = \%category_extras;
     $c->stash->{category_extras_hidden}  = \%category_extras_hidden;
@@ -765,22 +775,7 @@ sub setup_categories_and_bodies : Private {
     $c->stash->{missing_details_bodies} = \@missing_details_bodies;
     $c->stash->{missing_details_body_names} = \@missing_details_body_names;
 
-    if ( $c->cobrand->enable_category_groups ) {
-        my %category_groups = ();
-        for my $category (@category_options) {
-            my $group = $category->{group} // $category->get_extra_metadata('group') // [''];
-            # this could be an array ref or a string
-            my @groups = ref $group eq 'ARRAY' ? @$group : ($group);
-            push( @{$category_groups{$_}}, $category ) for @groups;
-        }
-
-        my @category_groups = ();
-        for my $group ( grep { $_ ne _('Other') } sort keys %category_groups ) {
-            push @category_groups, { name => $group, categories => $category_groups{$group} };
-        }
-        push @category_groups, { name => _('Other'), categories => $category_groups{_('Other')} } if ($category_groups{_('Other')});
-        $c->stash->{category_groups}  = \@category_groups;
-    }
+    $c->forward('/report/stash_category_groups', [ \@category_options ]) if $c->cobrand->enable_category_groups;
 }
 
 sub setup_report_extra_fields : Private {
@@ -892,7 +887,7 @@ sub process_user : Private {
             oauth_report => { $report->get_inflated_columns }
         };
         unless ( $c->forward( '/auth/sign_in', [ $params{username} ] ) ) {
-            $c->stash->{field_errors}->{password} = _('There was a problem with your login information. If you cannot remember your password, or do not have one, please fill in the &lsquo;No&rsquo; section of the form.');
+            $c->stash->{field_errors}->{password} = _('There was a problem with your login information. If you cannot remember your password, or do not have one, please fill in the ‘No’ section of the form.');
             return 1;
         }
         my $user = $c->user->obj;
@@ -1613,7 +1608,7 @@ sub redirect_or_confirm_creation : Private {
         return 1;
     }
 
-    # Superusers using 2FA can not log in by code
+    # People using 2FA can not log in by code
     $c->detach( '/page_error_403_access_denied', [] ) if $report->user->has_2fa;
 
     # otherwise email or text a confirm token to them.
@@ -1699,12 +1694,24 @@ sub generate_category_extra_json : Private {
     my $false = JSON->false;
 
     my @fields = map {
-        {
-            %$_,
-            required => ($_->{required} || '') eq "true" ? $true : $false,
-            variable => ($_->{variable} || '') eq "true" ? $true : $false,
-            order => int($_->{order} || 0),
+        my %data = %$_;
+
+        # Mobile app still looks in datatype_description
+        if (($_->{variable} || '') eq 'true' && @{$_->{values} || []}) {
+            foreach my $opt (@{$_->{values}}) {
+                if ($opt->{disable}) {
+                    my $message = $opt->{disable_message} || $_->{datatype_description};
+                    $data{datatype_description} = $message;
+                }
+            }
         }
+
+        # Remove unneeded
+        delete $data{$_} for qw(datatype protected variable order disable_form);
+        delete $data{datatype_description} unless $data{datatype_description};
+
+        $data{required} = ($_->{required} || '') eq "true" ? $true : $false;
+        \%data;
     } @{ $c->stash->{category_extras}->{$c->stash->{category}} };
 
     return \@fields;

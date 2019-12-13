@@ -7,7 +7,6 @@ package main;
 
 use Test::MockModule;
 use FixMyStreet::TestMech;
-use FixMyStreet::App;
 use Web::Scraper;
 use Path::Class;
 
@@ -60,6 +59,7 @@ for my $body (
     { area_id => 2600, name => 'Rutland County Council' },
     { area_id => 2234, name => 'Northamptonshire County Council' },
     { area_id => 2483, name => 'Hounslow Borough Council' },
+    { area_id => 2566, name => 'Peterborough City Council' },
 ) {
     my $body_obj = $mech->create_body_ok($body->{area_id}, $body->{name});
     push @bodies, $body_obj;
@@ -157,6 +157,11 @@ my $contact18 = $mech->create_contact_ok(
     category => 'General Enquiry',
     email => 'general-enquiry-2483@example.com',
     non_public => 1,
+);
+my $contact19 = $mech->create_contact_ok(
+    body_id => $body_ids{2566}, # Peterborough
+    category => 'Trees',
+    email => 'trees-2566@example.com',
 );
 
 # test that the various bit of form get filled in and errors correctly
@@ -682,6 +687,26 @@ foreach my $test (
         changes => { },
         errors => [ 'Summaries are limited to 120 characters in length. Please shorten your summary', 'Please enter some details'],
     },
+    {
+        msg    => 'Peterborough validation',
+        pc     => 'PE1 1HF',
+        fields => {
+            title         => 'This is a very long title that should fail the validation',
+            detail        => '',
+            photo1        => '',
+            photo2        => '',
+            photo3        => '',
+            name          => 'A User',
+            may_show_name => '1',
+            username      => 'user@example.org',
+            phone         => '',
+            category      => 'Trees',
+            password_sign_in => '',
+            password_register => '',
+        },
+        changes => { },
+        errors => [ 'Summaries are limited to 50 characters in length. Please shorten your summary', 'Please enter some details'],
+    },
   )
 {
     subtest "check form errors where $test->{msg}" => sub {
@@ -689,7 +714,7 @@ foreach my $test (
 
         # submit initial pc form
         FixMyStreet::override_config {
-            ALLOWED_COBRANDS => [ { fixmystreet => '.' }, 'bromley', 'oxfordshire', 'rutland', 'lincolnshire', 'buckinghamshire', 'northamptonshire' ],
+            ALLOWED_COBRANDS => [ { fixmystreet => '.' }, 'bromley', 'oxfordshire', 'rutland', 'lincolnshire', 'buckinghamshire', 'northamptonshire', 'peterborough' ],
             MAPIT_URL => 'http://mapit.uk/',
         }, sub {
             $mech->submit_form_ok( { with_fields => { pc => $test->{pc} } },
@@ -744,14 +769,14 @@ foreach my $test (
     # check that the user does not exist
     my $test_email = 'test-1@example.com';
     if ($test->{user}) {
-        my $user = FixMyStreet::App->model('DB::User')->find( { email => $test_email } );
+        my $user = FixMyStreet::DB->resultset('User')->find( { email => $test_email } );
         ok $user, "test user does exist";
         $user->problems->delete;
         $user->name( 'Old Name' );
         $user->password( 'old_password' );
         $user->update;
     } elsif (!$first_user) {
-        ok !FixMyStreet::App->model('DB::User')->find( { email => $test_email } ),
+        ok !FixMyStreet::DB->resultset('User')->find( { email => $test_email } ),
           "test user does not exist";
         $first_user = 1;
     } else {
@@ -796,7 +821,7 @@ foreach my $test (
 
     # check that the user has been created/ not changed
     my $user =
-      FixMyStreet::App->model('DB::User')->find( { email => $test_email } );
+      FixMyStreet::DB->resultset('User')->find( { email => $test_email } );
     ok $user, "user found";
     if ($test->{user}) {
         is $user->name, 'Old Name', 'name unchanged';
@@ -841,7 +866,7 @@ foreach my $test (
     }
 
     # check that the reporter has an alert
-    my $alert = FixMyStreet::App->model('DB::Alert')->find( {
+    my $alert = FixMyStreet::DB->resultset('Alert')->find( {
         user       => $report->user,
         alert_type => 'new_updates',
         parameter  => $report->id,
@@ -910,12 +935,13 @@ subtest "test password errors for a user who is signing in as they report" => su
         "There was a problem with your login information. If you cannot remember your password, or do not have one, please fill in the \x{2018}No\x{2019} section of the form.",
     ], "check there were errors";
 
-    $mech->content_lacks('1234', 'phone number not shown');
+    $mech->content_lacks('1234 567', 'phone number not shown');
 };
 
 foreach my $test (
-  { two_factor => 0, desc => '', },
-  { two_factor => 1, desc => ' with two-factor', },
+  { two_factor => '', desc => '', },
+  { two_factor => 'yes', desc => ' with two-factor', },
+  { two_factor => 'new', desc => ' with mandated two-factor, not yet set up', },
 ) {
   subtest "test report creation for a user who is signing in as they report$test->{desc}" => sub {
     $mech->log_out_ok;
@@ -932,21 +958,25 @@ foreach my $test (
         name     => 'Joe Bloggs',
         phone    => '01234 567 890',
         password => 'secret2',
+        $test->{two_factor} ? (is_superuser => 1) : (),
     } ), "set user details";
 
     my $auth;
-    if ($test->{two_factor}) {
+    my $mock;
+    if ($test->{two_factor} eq 'yes') {
         use Auth::GoogleAuth;
         $auth = Auth::GoogleAuth->new;
-        $user->is_superuser(1);
         $user->set_extra_metadata('2fa_secret', $auth->generate_secret32);
         $user->update;
+    } elsif ($test->{two_factor} eq 'new') {
+        $mock = Test::MockModule->new('FixMyStreet::Cobrand::FixMyStreet');
+        $mock->mock(must_have_2fa => sub { 1 });
     }
 
     # submit initial pc form
     $mech->get_ok('/around');
     FixMyStreet::override_config {
-        ALLOWED_COBRANDS => [ { fixmystreet => '.' } ],
+        ALLOWED_COBRANDS => 'fixmystreet',
         MAPIT_URL => 'http://mapit.uk/',
     }, sub {
         $mech->submit_form_ok( { with_fields => { pc => 'EH1 1BB', } },
@@ -971,12 +1001,21 @@ foreach my $test (
             "submit good details"
         );
 
-        if ($test->{two_factor}) {
+        if ($test->{two_factor} eq 'yes') {
             my $code = $auth->code;
             my $wrong_code = $auth->code(undef, time() - 120);
             $mech->content_contains('Please generate a two-factor code');
             $mech->submit_form_ok({ with_fields => { '2fa_code' => $wrong_code } }, "provide wrong 2FA code" );
             $mech->content_contains('Try again');
+            $mech->submit_form_ok({ with_fields => { '2fa_code' => $code } }, "provide correct 2FA code" );
+        } elsif ($test->{two_factor} eq 'new') {
+            $mech->content_contains('requires two-factor');
+            $mech->submit_form_ok({ with_fields => { '2fa_action' => 'activate' } }, "submit 2FA activation");
+            my ($token) = $mech->content =~ /name="secret32" value="([^"]*)">/;
+
+            use Auth::GoogleAuth;
+            my $auth = Auth::GoogleAuth->new({ secret32 => $token });
+            my $code = $auth->code;
             $mech->submit_form_ok({ with_fields => { '2fa_code' => $code } }, "provide correct 2FA code" );
         }
 
@@ -998,7 +1037,7 @@ foreach my $test (
     my $report = $user->problems->first;
     ok $report, "Found the report";
 
-    if (!$test->{two_factor}) {
+    if ($test->{two_factor} eq '') {
         # The superuser account will be immediately redirected
         $mech->content_contains('Thank you for reporting this issue');
     }
@@ -1014,7 +1053,7 @@ foreach my $test (
     $mech->get_ok( '/report/' . $report->id );
 
     # check that the reporter has an alert
-    my $alert = FixMyStreet::App->model('DB::Alert')->find( {
+    my $alert = FixMyStreet::DB->resultset('Alert')->find( {
         user       => $report->user,
         alert_type => 'new_updates',
         parameter  => $report->id,
@@ -1115,7 +1154,7 @@ foreach my $test (
         $mech->get_ok( '/report/' . $report->id );
 
         # check that the reporter has an alert
-        my $alert = FixMyStreet::App->model('DB::Alert')->find( {
+        my $alert = FixMyStreet::DB->resultset('Alert')->find( {
             user       => $report->user,
             alert_type => 'new_updates',
             parameter  => $report->id,
@@ -1491,13 +1530,13 @@ subtest "check that a lat/lon off coast leads to /around" => sub {
 };
 
 subtest "check we load a partial report correctly" => sub {
-    my $user = FixMyStreet::App->model('DB::User')->find_or_create(
+    my $user = FixMyStreet::DB->resultset('User')->find_or_create(
         {
             email => 'test-partial@example.com'
         }
     );
 
-    my $report = FixMyStreet::App->model('DB::Problem')->create( {
+    my $report = FixMyStreet::DB->resultset('Problem')->create( {
         name               => '',
         postcode           => '',
         category           => 'Street lighting',
@@ -1516,7 +1555,7 @@ subtest "check we load a partial report correctly" => sub {
 
     my $report_id = $report->id;
 
-    my $token = FixMyStreet::App->model("DB::Token")
+    my $token = FixMyStreet::DB->resultset("Token")
         ->create( { scope => 'partial', data => $report->id } );
 
     my $token_code = $token->token;
@@ -1662,7 +1701,7 @@ for my $test (
         # confirm token in order to update the user details
         $mech->get_ok($url);
 
-        my $user = FixMyStreet::App->model('DB::User')->find( { email => 'firstlast@example.com' } );
+        my $user = FixMyStreet::DB->resultset('User')->find( { email => 'firstlast@example.com' } );
 
         my $report = $user->problems->first;
         ok $report, "Found the report";
@@ -1801,7 +1840,7 @@ subtest "test Hart" => sub {
 
             # check that the user has been created/ not changed
             $user =
-              FixMyStreet::App->model('DB::User')->find( { email => $user ? $user->email : $test_email } );
+              FixMyStreet::DB->resultset('User')->find( { email => $user ? $user->email : $test_email } );
             ok $user, "user found";
 
             # find the report
@@ -1927,7 +1966,7 @@ subtest "unresponsive body handling works" => sub {
             "submit good details"
         );
 
-        my $user = FixMyStreet::App->model('DB::User')->find( { email => $test_email } );
+        my $user = FixMyStreet::DB->resultset('User')->find( { email => $test_email } );
         ok $user, "test user does exist";
 
         my $report = $user->problems->first;
@@ -1961,7 +2000,7 @@ subtest "unresponsive body handling works" => sub {
         my $res = $mech->response;
         ok $res->header('Content-Type') =~ m{^application/json\b}, 'response should be json';
 
-        $user = FixMyStreet::App->model('DB::User')->find( { email => $test_email } );
+        $user = FixMyStreet::DB->resultset('User')->find( { email => $test_email } );
         ok $user, "test user does exist";
 
         $report = $user->problems->first;
@@ -2135,7 +2174,7 @@ subtest "extra google analytics code displayed on email confirmation problem cre
         $mech->get_ok($url);
 
         # find the report
-        my $user = FixMyStreet::App->model('DB::User')->find( { email => 'firstlast@example.com' } );
+        my $user = FixMyStreet::DB->resultset('User')->find( { email => 'firstlast@example.com' } );
 
         my $report = $user->problems->first;
         ok $report, "Found the report";

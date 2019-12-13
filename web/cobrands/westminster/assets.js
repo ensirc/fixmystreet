@@ -88,32 +88,6 @@ fixmystreet.assets.add(defaults, {
     }
 });
 
-fixmystreet.assets.add(defaults, {
-    http_options: {
-        url: url_base + '2/query?'
-    },
-    asset_category: 'Road or pavement damage',
-    non_interactive: true,
-    road: true,
-    nearest_radius: 25,
-    stylemap: fixmystreet.assets.stylemap_invisible,
-    actions: {
-        found: function(layer, feature) {
-            if (!fixmystreet.assets.selectedFeature()) {
-                fixmystreet.body_overrides.only_send('TfL');
-                $('#category_meta').empty();
-            } else {
-                fixmystreet.body_overrides.remove_only_send();
-            }
-            fixmystreet.message_controller.check_for_stopper();
-        },
-        not_found: function(layer) {
-            fixmystreet.body_overrides.remove_only_send();
-            fixmystreet.message_controller.check_for_stopper();
-        }
-    }
-});
-
 var layer_data = [
     { category: [ 'Food safety/hygiene' ] },
     { category: 'Damaged, dirty, or missing bin', subcategories: [ '1', '4' ], subcategory_id: '#form_bin_type' },
@@ -218,7 +192,7 @@ $.each(layer_data, function(i, o) {
             asset_not_found: function() {
                 $('.category_meta_message').html('You can pick a <b class="asset-spot">' + this.fixmystreet.asset_item + '</b> from the map &raquo;');
                 $("#uprn_select").remove();
-                fixmystreet.message_controller.asset_not_found(this);
+                fixmystreet.message_controller.asset_not_found.call(this);
             }
         }
     };

@@ -39,17 +39,20 @@ my @PLACES = (
     [ 'LE15 0GJ', 52.670447, -0.727877, 2600, 'Rutland County Council', 'CTY'],
     [ 'BR1 3UH', 51.4021, 0.01578, 2482, 'Bromley Council', 'LBO' ],
     [ 'BR1 3UH', 51.402096, 0.015784, 2482, 'Bromley Council', 'LBO' ],
+    [ 'BR1 3EF', 51.4039, 0.018697, 2482, 'Bromley Council', 'LBO' ],
     [ 'NN1 1NS', 52.236251, -0.892052, 2234, 'Northamptonshire County Council', 'CTY', 2397, 'Northampton Borough Council', 'DIS' ],
     [ 'NN1 2NS', 52.238301, -0.889992, 2234, 'Northamptonshire County Council', 'CTY', 2397, 'Northampton Borough Council', 'DIS' ],
     [ '?', 52.238827, -0.894970, 2234, 'Northamptonshire County Council', 'CTY', 2397, 'Northampton Borough Council', 'DIS' ],
     [ 'TW7 5JN', 51.482286, -0.328163, 2483, 'Hounslow Borough Council', 'LBO' ],
     [ '?', 51.48111, -0.327219, 2483, 'Hounslow Borough Council', 'LBO' ],
     [ '?', 51.482045, -0.327219, 2483, 'Hounslow Borough Council', 'LBO' ],
+    [ 'CW11 1HZ', 53.145324, -2.370437, 21069, 'Cheshire East Council', 'UTA', 135301, 'Sandbach Town', 'UTW' ],
     [ '?', 50.78301, -0.646929 ],
     [ 'TA1 1QP', 51.023569, -3.099055, 2239, 'Somerset County Council', 'CTY', 2429, 'Taunton Deane Borough Council', 'DIS' ],
     [ 'GU51 4AE', 51.279456, -0.846216, 2333, 'Hart District Council', 'DIS', 2227, 'Hampshire County Council', 'CTY' ],
     [ 'WS1 4NH', 52.563074, -1.991032, 2535, 'Sandwell Borough Council', 'MTD' ],
     [ 'PO30 5XJ', 50.71086, -1.29573, 2636, 'Isle of Wight Council', 'UTA' ],
+    [ 'PE1 1HF', 52.57146, -0.24201, 2566, 'Peterborough City Council', 'UTA' ],
     [ 'OX28 4DS', 51.784721, -1.494453 ],
     [ 'E14 2DN', 51.508536, '0.000001' ],
     # Norway
@@ -115,6 +118,15 @@ sub dispatch_request {
             $self->output({2326 => {parent_area => undef, id => 2326, name => "Cheltenham Borough Council", type => "DIS"}});
         } elsif ($areas eq 'UTA') {
             $self->output({2650 => {parent_area => undef, id => 2650, name => "Aberdeen Council", type => "UTA"}});
+        } elsif ($areas eq 'GRE') {
+            $self->output({2493 => {parent_area => undef, id => 2493, name => "Greenwich Borough Council", type => "LBO"}});
+        } elsif ($areas eq 'LBO') {
+            $self->output({
+                2482 => {parent_area => undef, id => 2482, name => "Bromley Borough Council", type => "LBO"},
+                2483 => {parent_area => undef, id => 2483, name => "Hounslow Borough Council", type => "LBO"},
+            });
+        } elsif ($areas eq 60705) {
+            $self->output({60705 => {parent_area => 2245, id => 60705, name => "Trowbridge", type => "CPC"}});
         }
     },
 

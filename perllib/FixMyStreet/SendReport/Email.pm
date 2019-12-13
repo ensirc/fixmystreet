@@ -59,7 +59,7 @@ sub envelope_sender {
     if ($row->user->email && $row->user->email_verified) {
         return FixMyStreet::Email::unique_verp_id('report', $row->id);
     }
-    return FixMyStreet->config('DO_NOT_REPLY_EMAIL');
+    return $row->get_cobrand_logged->do_not_reply_email;
 }
 
 sub send {
@@ -106,16 +106,26 @@ sub send {
     }
 
     my $result = FixMyStreet::Email::send_cron($row->result_source->schema,
-        $self->get_template($row), $h,
+        $self->get_template($row), {
+            %$h,
+            cobrand => $cobrand, # For correct logo that uses cobrand object
+        },
         $params, $sender, $nomail, $cobrand, $row->lang);
 
     unless ($result) {
+        $row->set_extra_metadata('sent_to' => email_list($params->{To}));
         $self->success(1);
     } else {
         $self->error( 'Failed to send email' );
     }
 
     return $result;
+}
+
+sub email_list {
+    my $list = shift;
+    my @list = map { ref $_ ? $_->[0] : $_ } @$list;
+    return \@list;
 }
 
 # SW&T has different contact addresses depending upon the old district
