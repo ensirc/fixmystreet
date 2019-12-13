@@ -1,5 +1,5 @@
 /*
- * Maps for FMS using Hounslow Highways' WMTS tile server
+ * Maps for FMS using Northamptonshire's tile server
  */
 
 fixmystreet.maps.layer_bounds = new OpenLayers.Bounds(

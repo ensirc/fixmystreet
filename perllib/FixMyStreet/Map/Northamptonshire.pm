@@ -16,13 +16,8 @@ sub copyright {
 sub scales {
     my $self = shift;
     my @scales = (
-        # The first 5 levels don't load and are really zoomed-out, so
-        #  they're not included here.
-        # '600000',
-        # '500000',
-        # '400000',
-        # '300000',
-        # '200000',
+        '300000',
+        '200000',
         '100000',
         '75000',
         '50000',

@@ -32,7 +32,7 @@ sub zoom_parameters {
     my $self = shift;
     my $params = {
         zoom_levels    => scalar $self->scales,
-        default_zoom   => 5,
+        default_zoom   => 7,
         min_zoom_level => 1,
         id_offset      => 0,
     };
