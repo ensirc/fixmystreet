@@ -56,7 +56,6 @@ sub reproject_from_latlon($$$) {
     # do not try to reproject if we have no co-ordindates as convert breaks
     return (0.0, 0.0) if $lat == 0 && $lon == 0;
     my ($x, $y) = Utils::convert_latlon_to_en($lat, $lon);
-    warn join ', ', $lat, $lon, $x, $y;
     return ($x, $y);
 }
 
