@@ -40,7 +40,7 @@ sub zoom_parameters {
 }
 
 # A hash of parameters used in calculations for map tiles
-sub file_parameters {
+sub tile_parameters {
     my $params = {
         urls         => [ '' ], # URL of the map tiles, up to the /{z}/{x}/{y} part
         layer_names  => [ '' ],
@@ -51,8 +51,6 @@ sub file_parameters {
         size         => 256, # pixels
         dpi          => 96,
         inches_per_unit => 0, # See OpenLayers.INCHES_PER_UNIT for some options.
-        origin_x     => 0,
-        origin_y     => 0,
         projection   => 'EPSG:3857', # Passed through to OpenLayers.Projection
     };
     return $params;
@@ -108,7 +106,7 @@ sub map_tiles {
                     my $col = $col_offset * $size;
                     my $src = sprintf '%s&bbox=%d,%d,%d,%d',
                         $tile_url, $min_x + $col, $min_y - $row, $max_x + $col, $max_y - $row;
-                    my $dotted_id = sprintf '%d.%d', $col, $row;
+                    my $dotted_id = sprintf '%d.%d', ($min_x + $col), ($min_y - $row);
 
                     # return the data structure for the cell
                     +{
@@ -167,16 +165,6 @@ sub display_map {
                 img_type => 'img',
                 cols => 4, rows => 4,
             );
-        # NB: we can passthrough img_type as literal here, as only designed for print
-
-        # NB we can do arbitrary size, including non-squares, however we'd have
-        # to modify .square-map style with padding-bottom percentage calculated in
-        # an inline style:
-        # <zarino> in which case, the only change that'd be required is
-        # removing { padding-bottom: 100% } from .square-map__outer, putting
-        # the percentage into an inline style on the element itself, and then
-        # probably renaming .square-map__* to .fixed-aspect-map__* or something
-        # since it's no longer necessarily square
     }
 }
 
@@ -187,10 +175,6 @@ sub get_map_hash {
         = $self->latlon_to_tile_with_adjust(
             @params{'latitude', 'longitude', 'zoom', 'rows', 'cols'});
 
-    # centre_(row|col) is either in middle, or just to right.
-    # e.g. if centre is the number in parens:
-    # 1 (2) 3 => 2 - int( 3/2 ) = 1
-    # 1 2 (3) 4 => 3 - int( 4/2 ) = 1
     $params{x_left_tile} = $params{x_centre_tile} - int($params{cols} / 2);
     $params{y_top_tile}  = $params{y_centre_tile} - int($params{rows} / 2);
 
@@ -223,8 +207,6 @@ sub get_map_hash {
         map_projection => $self->tile_parameters->{projection},
         wms_version => $self->tile_parameters->{wms_version},
         format => $self->tile_parameters->{format},
-        origin_x => force_float_format($self->tile_parameters->{origin_x}),
-        origin_y => force_float_format($self->tile_parameters->{origin_y}),
         scales => encode_json( \@scales ),
     };
 }
@@ -263,7 +245,6 @@ sub latlon_to_tile_with_adjust {
     my @scales = $self->scales;
     my $res = $scales[$zoom] /
         ($tile_params->{inches_per_unit} * $tile_params->{dpi});
-        # OpenLayers.INCHES_PER_UNIT[units] * OpenLayers.DOTS_PER_INCH
 
 
     $x_tile = $x_tile -  ($res * $tile_params->{size});
@@ -272,74 +253,39 @@ sub latlon_to_tile_with_adjust {
     return ( int($x_tile), int($y_tile) );
 }
 
-sub tile_to_latlon {
-    my ($self, $fx, $fy, $zoom) = @_;
-
-    my $tile_params = $self->tile_parameters;
-    my @scales = $self->scales;
-    my $tileOrigin = {
-        lon => $tile_params->{origin_x},
-        lat => $tile_params->{origin_y}
-    };
-    my $res = $scales[$zoom] /
-        ($tile_params->{inches_per_unit} * $tile_params->{dpi});
-        # OpenLayers.INCHES_PER_UNIT[units] * OpenLayers.DOTS_PER_INCH
-
-    my $x = $fx * $res * $tile_params->{size} + $tileOrigin->{lon};
-    my $y = $tileOrigin->{lat} - $fy * $res * $tile_params->{size};
-
-    my ($lat, $lon) = $self->reproject_to_latlon($fx, $fy);
-
-    return ( $lat, $lon );
-}
-
 # Given a lat/lon, convert it to pixel co-ordinates from the top left of the map
 sub latlon_to_px($$$$$$) {
     my ($self, $lat, $lon, $x_tile, $y_tile, $zoom) = @_;
     my ($pin_x_tile, $pin_y_tile) = $self->latlon_to_tile($lat, $lon, $zoom);
-    warn "$x_tile, $y_tile, $pin_x_tile, $pin_y_tile\n";
     my $tile_params = $self->tile_parameters;
     my @scales = $self->scales;
     my $res = $scales[$zoom] /
         ($tile_params->{inches_per_unit} * $tile_params->{dpi});
-    my $pin_x = ( $pin_x_tile - $x_tile ) / ( $res * $tile_params->{size} ); #$self->tile_to_px($pin_x_tile, $x_tile);
-    my $pin_y = ( $y_tile - $pin_y_tile ) / ( $res * $tile_params->{size} ); #$self->tile_to_px($pin_y_tile, $y_tile);
+    my $pin_x = ( $pin_x_tile - $x_tile ) / $res;
+    my $pin_y = ( $y_tile - $pin_y_tile ) / $res;
     return ($pin_x, $pin_y);
 }
 
-# Convert tile co-ordinates to pixel co-ordinates from top left of map
-# C is centre tile reference of displayed map
-sub tile_to_px {
-    my ($self, $p, $c) = @_;
-    $p = ($p - $c);
-    $p = int($p + .5 * ($p <=> 0));
-    return $p;
-}
-
 sub click_to_tile {
-    my ($self, $pin_tile, $pin) = @_;
-    my $tile_size = $self->tile_parameters->{size};
-    $pin -= $tile_size while $pin > $tile_size;
-    $pin += $tile_size while $pin < 0;
-    return $pin_tile + $pin / $tile_size;
+    my ($self, $pin_tile, $pin, $zoom, $reverse) = @_;
+    my $tile_params = $self->tile_parameters;
+    my @scales = $self->scales;
+    my $size = $tile_params->{size};
+    my $res = $scales[$zoom] /
+        ($tile_params->{inches_per_unit} * $tile_params->{dpi});
+
+    return $reverse ? $pin_tile + ( ( $size - $pin ) * $res ) : $pin_tile + ( $pin * $res );
 }
 
 # Given some click co-ords (the tile they were on, and where in the
 # tile they were), convert to WGS84 and return.
 sub click_to_wgs84 {
     my ($self, $c, $pin_tile_x, $pin_x, $pin_tile_y, $pin_y) = @_;
-    my $tile_x = $self->click_to_tile($pin_tile_x, $pin_x);
-    my $tile_y = $self->click_to_tile($pin_tile_y, $pin_y);
     my $zoom = (defined $c->get_param('zoom') ? $c->get_param('zoom') : $self->zoom_parameters->{default_zoom});
-    my ($lat, $lon) = $self->tile_to_latlon($tile_x, $tile_y, $zoom);
+    my $tile_x = $self->click_to_tile($pin_tile_x, $pin_x, $zoom);
+    my $tile_y = $self->click_to_tile($pin_tile_y, $pin_y, $zoom, 1);
+    my ($lat, $lon) = $self->reproject_to_latlon($tile_x, $tile_y);
     return ( $lat, $lon );
-}
-
-sub force_float_format {
-  my $in = shift;
-  return mySociety::Locale::in_gb_locale {
-      sprintf( '%f', $in );
-  };
 }
 
 1;
