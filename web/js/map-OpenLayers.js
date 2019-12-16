@@ -375,6 +375,66 @@ $.extend(fixmystreet.utils, {
               new OpenLayers.LonLat( state.lon, state.lat ),
               state.zoom
           );
+      },
+
+      setup_geolocation: function() {
+          if (!OpenLayers.Control.Geolocate || !fixmystreet.map ||
+              !fixmystreet.utils || !fixmystreet.utils.parse_query_string ||
+              fixmystreet.utils.parse_query_string().geolocate !== '1'
+          ) {
+              return;
+          }
+
+          var layer;
+          function addGeolocationLayer() {
+            layer = new OpenLayers.Layer.Vector('Geolocation');
+            fixmystreet.map.addLayer(layer);
+            layer.setZIndex(fixmystreet.map.getLayersByName("Pins")[0].getZIndex() - 1);
+          }
+
+          function updateGeolocationMarker(e) {
+              if (!layer) {
+                  addGeolocationLayer();
+              }
+              layer.removeAllFeatures();
+              var loc = new OpenLayers.Geometry.Point(e.point.x, e.point.y);
+              var uncertainty = new OpenLayers.Feature.Vector(
+                  OpenLayers.Geometry.Polygon.createRegularPolygon(
+                      loc,
+                      e.position.coords.accuracy, // Luckily the layer units are metres!
+                      40,
+                      0
+                  ),
+                  {},
+                  {
+                      fillColor: '#4FADED',
+                      fillOpacity: 0.2,
+                      strokeWidth: 0
+                  }
+              );
+              var marker = new OpenLayers.Feature.Vector(
+                  loc,
+                  {},
+                  {
+                      graphicName: 'circle',
+                      strokeColor: '#fff',
+                      strokeWidth: 2,
+                      fillColor: '#4FADED',
+                      fillOpacity: 1,
+                      pointRadius: 10
+                  }
+              );
+              layer.addFeatures([ uncertainty, marker ]);
+          }
+
+          var control = new OpenLayers.Control.Geolocate({
+              bind: false, // Don't want the map to pan to each location
+              watch: true,
+              enableHighAccuracy: true
+          });
+          control.events.register("locationupdated", null, updateGeolocationMarker);
+          fixmystreet.map.addControl(control);
+          control.activate();
       }
     });
 
@@ -785,6 +845,10 @@ $.extend(fixmystreet.utils, {
 
         if (fixmystreet.page == "report") {
             setup_inspector_marker_drag();
+        }
+
+        if (fixmystreet.page == "around" || fixmystreet.page == "new") {
+            fixmystreet.maps.setup_geolocation();
         }
 
         if ( fixmystreet.zoomToBounds ) {
