@@ -216,6 +216,8 @@ sub get_image_data {
 
     return {
         data => $photo->as_blob,
+        width => $photo->width,
+        height => $photo->height,
         content_type => $image->{content_type},
     };
 }
