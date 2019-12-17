@@ -31,6 +31,11 @@ sub get_first_image_fp {
     return $self->get_photoset->get_image_data( num => 0, size => 'fp' );
 }
 
+sub get_first_image_og {
+    my ($self) = @_;
+    return $self->get_photoset->get_image_data( num => 0, size => 'og' );
+}
+
 sub photos {
     my $self = shift;
     my $photoset = $self->get_photoset;
