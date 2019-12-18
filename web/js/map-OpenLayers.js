@@ -407,8 +407,8 @@ $.extend(fixmystreet.utils, {
                   ),
                   {},
                   {
-                      fillColor: '#4FADED',
-                      fillOpacity: 0.2,
+                      fillColor: '#0074FF',
+                      fillOpacity: 0.3,
                       strokeWidth: 0
                   }
               );
@@ -418,8 +418,8 @@ $.extend(fixmystreet.utils, {
                   {
                       graphicName: 'circle',
                       strokeColor: '#fff',
-                      strokeWidth: 2,
-                      fillColor: '#4FADED',
+                      strokeWidth: 4,
+                      fillColor: '#0074FF',
                       fillOpacity: 1,
                       pointRadius: 10
                   }
