@@ -47,13 +47,15 @@ sub shrink {
     return $self->strip;
 }
 
-# Shrinks a picture to 90x60, cropping so that it is exactly that.
+# Shrinks a picture to a given dimension (defaults to 90x60(, cropping so that
+# it is exactly that.
 sub crop {
-    my $self = shift;
+    my ($self, $size) = @_;
+    $size //= '90x60';
     return $self unless $self->image;
-    my $err = $self->image->Resize( geometry => "90x60^" );
+    my $err = $self->image->Resize( geometry => "$size^" );
     throw Error::Simple("resize failed: $err") if "$err";
-    $err = $self->image->Extent( geometry => '90x60', gravity => 'Center' );
+    $err = $self->image->Extent( geometry => $size, gravity => 'Center' );
     throw Error::Simple("resize failed: $err") if "$err";
     return $self->strip;
 }

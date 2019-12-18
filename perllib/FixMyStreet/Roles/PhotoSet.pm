@@ -62,6 +62,7 @@ sub photos {
             url_full => "/photo/$typ$id.$i.full.$format?$cachebust",
             url_tn => "/photo/$typ$id.$i.tn.$format?$cachebust",
             url_fp => "/photo/$typ$id.$i.fp.$format?$cachebust",
+            url_og => "/photo/$typ$id.$i.og.$format?$cachebust",
             idx => $i++,
         }
     } $photoset->all_ids;

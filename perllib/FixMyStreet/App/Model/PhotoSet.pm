@@ -206,6 +206,8 @@ sub get_image_data {
         $photo = $im->shrink('x100')->as_blob;
     } elsif ( $size eq 'fp' ) {
         $photo = $im->crop->as_blob;
+    } elsif ( $size eq 'og' ) {
+        $photo = $im->crop('1200x630')->as_blob;
     } elsif ( $size eq 'full' ) {
         # do nothing
     } else {
