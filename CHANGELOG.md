@@ -20,7 +20,7 @@
         - Set report title autocomplete to off to prevent email autocompleting
         - Add map filter debouncing to reduce server requests. #2675
         - Add XSL to RSS feeds so they look nicer in browsers.
-        - Add a web manifest. #2220
+        - Add a web manifest and service worker. #2220
     - Admin improvements:
         - Add new roles system, to group permissions and apply to users. #2483
         - Contact form emails now include user admin links.

@@ -13,4 +13,12 @@
 <meta name='theme-color' content='#ffd000'>
 <link rel="Shortcut Icon" type="image/x-icon" href="/cobrands/fixmystreet.com/favicon.ico">
 
+<script nonce="[% csp_nonce %]">
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/service-worker.js');
+    });
+}
+</script>
+
 [% INCLUDE 'tracking_code.html' %]
