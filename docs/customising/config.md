@@ -316,9 +316,7 @@ The following are all the configuration settings that you can change in `conf/ge
       reports</a> to the reporter <em>instead of</em> the relevant body's
       contact address; <code>skip_checks</code> will stop cobrands from
       performing some checks such as the map pin location being within their
-      covered area, which makes testing multiple cobrands much easier;
-      <code>enable_appcache</code> lets you say whether the appcache should be
-      active or not.
+      covered area, which makes testing multiple cobrands much easier.
     </p>
     <p>
       Note that this setting is only relevant on a
@@ -336,13 +334,12 @@ The following are all the configuration settings that you can change in `conf/ge
 STAGING_FLAGS:
   send_reports: 0
   skip_checks: 1
-  enable_appcache: 0
 </pre>
     </div>
           <p>
             Any reports created will now be sent to the email of the reporter
-            and <em>not</em> the body's; any location checks are skipped, and
-            we won't ever use appcache. Great for testing!
+            and <em>not</em> the body's; and any location checks are skipped.
+            Great for testing!
           </p>
   </dd>
 
