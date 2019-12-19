@@ -1,3 +1,5 @@
+// jshint esversion: 8
+
 fixmystreet.offlineBanner = (function() {
     var toCache = 0;
     var cachedSoFar = 0;
@@ -177,71 +179,41 @@ fixmystreet.offlineData = (function() {
 fixmystreet.cachet = (function(){
     var urlsInProgress = {};
 
-    function cacheURL(url, type) {
+    async function cacheURL(url) {
         urlsInProgress[url] = 1;
-
-        var ret;
-        if (type === 'image') {
-            ret = $.Deferred(function(deferred) {
-                var oReq = new XMLHttpRequest();
-                oReq.open("GET", url, true);
-                oReq.responseType = "blob";
-                oReq.onload = function(oEvent) {
-                    var blob = oReq.response;
-                    var reader = new window.FileReader();
-                    reader.readAsDataURL(blob);
-                    reader.onloadend = function() {
-                        localStorage.setItem(url, reader.result);
-                        delete urlsInProgress[url];
-                        deferred.resolve(blob);
-                    };
-                };
-                oReq.send();
-            });
-        } else {
-            ret = $.ajax(url).pipe(function(content, textStatus, jqXHR) {
-                localStorage.setItem(url, content);
-                delete urlsInProgress[url];
-                return content;
-            });
+        var cache = await caches.open('pages');
+        var response = await fetch(url);
+        if (response.ok) {
+            await cache.put(url, response.clone());
+            delete urlsInProgress[url];
         }
-        return ret;
+        return response;
     }
 
-    function cacheReport(item) {
-        return cacheURL(item.url, 'html').pipe(function(html) {
-            var $reportPage = $(html);
-            var imagesToGet = [
-                item.url + '/map' // Static map image
-            ];
-            $reportPage.find('img').each(function(i, img) {
-                if (img.src.indexOf('/photo/') === -1 || fixmystreet.offlineData.isIndexed(img.src) || urlsInProgress[img.src]) {
-                    return;
-                }
-                imagesToGet.push(img.src);
-                imagesToGet.push(img.src.replace('.jpeg', '.fp.jpeg'));
-            });
-            var imagePromises = imagesToGet.map(function(url) {
-                return cacheURL(url, 'image');
-            });
-            return $.when.apply(undefined, imagePromises).pipe(function() {
-                fixmystreet.offlineBanner.progress();
-                fixmystreet.offlineData.add(item.url, item.lastupdate);
-            }, function() {
-                fixmystreet.offlineBanner.progress();
-                fixmystreet.offlineData.add(item.url, item.lastupdate);
-            });
+    async function cacheReport(item) {
+        var response = await cacheURL(item.url);
+        var html = await response.text();
+        var $reportPage = $(html);
+        var imagesToGet = [
+            item.url + '/map' // Static map image
+        ];
+        $reportPage.find('img').each(function(i, img) {
+            if (img.src.indexOf('/photo/') === -1 || fixmystreet.offlineData.isIndexed(img.src) || urlsInProgress[img.src]) {
+                return;
+            }
+            imagesToGet.push(img.src);
+            imagesToGet.push(img.src.replace('.jpeg', '.fp.jpeg'));
         });
+        await Promise.all(imagesToGet.map(url => cacheURL(url)));
+        fixmystreet.offlineBanner.progress();
+        fixmystreet.offlineData.add(item.url, item.lastupdate);
     }
 
     // Cache a list of reports offline
     // This fetches the HTML and any img elements in that HTML
-    function cacheReports(items) {
+    async function cacheReports(items) {
         fixmystreet.offlineBanner.startProgress(items.length);
-        var promises = items.map(function(item) {
-            return cacheReport(item);
-        });
-        return $.when.apply(undefined, promises);
+        await Promise.all(items.map(item => cacheReport(item)));
     }
 
     return {
@@ -289,31 +261,29 @@ fixmystreet.offline = (function() {
     }
 
     // Remove a list of reports from the offline cache
-    function removeReports(urls) {
+    async function removeReports(urls) {
         var pathsRemoved = [];
-        urls.forEach(function(url) {
-            var html = localStorage.getItem(url);
+        var cache = await caches.open('pages');
+        urls.forEach(async function(url) {
+            var response = await fetch(url);
+            var html = await response.text();
             var $reportPage = $(html);
-            localStorage.removeItem(url + '/map');
+            cache.delete(url + '/map');
             $reportPage.find('img').each(function(i, img) {
                 if (img.src.indexOf('/photo/') === -1) {
                     return;
                 }
-                localStorage.removeItem(img.src);
-                localStorage.removeItem(img.src.replace('.jpeg', '.fp.jpeg'));
+                cache.delete(img.src);
+                cache.delete(img.src.replace('.jpeg', '.fp.jpeg'));
             });
-            localStorage.removeItem(url);
+            cache.delete(url);
         });
         fixmystreet.offlineData.remove(urls);
     }
 
     function showReportFromCache(url) {
-        var map = localStorage.getItem(url + '/map');
-        $('#map_box').html('<img src="' + map + '">').css({ textAlign: 'center', height: 'auto' });
-        replaceImages('img');
-
+        $('#map_box').html('<img src="' + url + '/map">').css({ textAlign: 'center', height: 'auto' });
         $('.moderate-display.segmented-control, .shadow-wrap, #update_form, #report-cta, .mysoc-footer, .nav-wrapper').hide();
-
         $('.js-back-to-report-list').attr('href', '/my/planned');
 
         // Refill form with saved data if there is any
@@ -347,25 +317,21 @@ fixmystreet.offline = (function() {
         return true;
     }
 
-    function replaceImages(selector) {
-        $(selector).each(function(i, img) {
-            if (img.src.indexOf('/photo/') > -1) {
-                var dataImg = localStorage.getItem(img.src);
-                if (dataImg) {
-                    img.src = dataImg;
-                }
-            }
-        });
-    }
-
     return {
-        replaceImages: replaceImages,
         showReportFromCache: showReportFromCache,
         removeReports: removeReports,
         updateCachedReports: updateCachedReports
     };
 
 })();
+
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', function(event) {
+        if (location.pathname.indexOf('/report') === 0) {
+            fixmystreet.offline.showReportFromCache(location.pathname);
+        }
+    });
+}
 
 if ($('#offline_list').length) {
     // We are OFFLINE
@@ -376,7 +342,6 @@ if ($('#offline_list').length) {
         if (location.search.indexOf('saved=1') > 0) {
             $('#offline_list').before('<p class="form-success">'+translation_strings.offline.update_saved+'</p>');
         }
-        fixmystreet.offline.replaceImages('#offline_list img');
         var offlineForms = fixmystreet.offlineData.getForms();
         var savedForms = {};
         offlineForms.forEach(function(form) {
