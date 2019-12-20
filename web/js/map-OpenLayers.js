@@ -386,22 +386,13 @@ $.extend(fixmystreet.utils, {
           }
 
           var layer;
-          function addGeolocationLayer() {
-            layer = new OpenLayers.Layer.Vector('Geolocation');
-            fixmystreet.map.addLayer(layer);
-            layer.setZIndex(fixmystreet.map.getLayersByName("Pins")[0].getZIndex() - 1);
-          }
 
-          function updateGeolocationMarker(e) {
-              if (!layer) {
-                  addGeolocationLayer();
-              }
-              layer.removeAllFeatures();
+          function createCircleOfUncertainty(e) {
               var loc = new OpenLayers.Geometry.Point(e.point.x, e.point.y);
-              var uncertainty = new OpenLayers.Feature.Vector(
+              return new OpenLayers.Feature.Vector(
                   OpenLayers.Geometry.Polygon.createRegularPolygon(
                       loc,
-                      e.position.coords.accuracy, // Luckily the layer units are metres!
+                      e.position.coords.accuracy,
                       40,
                       0
                   ),
@@ -412,19 +403,58 @@ $.extend(fixmystreet.utils, {
                       strokeWidth: 0
                   }
               );
-              var marker = new OpenLayers.Feature.Vector(
-                  loc,
-                  {},
-                  {
-                      graphicName: 'circle',
-                      strokeColor: '#fff',
-                      strokeWidth: 4,
-                      fillColor: '#0074FF',
-                      fillOpacity: 1,
-                      pointRadius: 10
-                  }
-              );
-              layer.addFeatures([ uncertainty, marker ]);
+          }
+          function addGeolocationLayer(e) {
+            layer = new OpenLayers.Layer.Vector('Geolocation');
+            fixmystreet.map.addLayer(layer);
+            layer.setZIndex(fixmystreet.map.getLayersByName("Pins")[0].getZIndex() - 1);
+            var marker = new OpenLayers.Feature.Vector(
+                new OpenLayers.Geometry.Point(e.point.x, e.point.y),
+                {
+                    marker: true
+                },
+                {
+                    graphicName: 'circle',
+                    strokeColor: '#fff',
+                    strokeWidth: 4,
+                    fillColor: '#0074FF',
+                    fillOpacity: 1,
+                    pointRadius: 10
+                }
+            );
+            layer.addFeatures([ createCircleOfUncertainty(e), marker ]);
+          }
+
+          function updateGeolocationMarker(e) {
+              if (!layer) {
+                  addGeolocationLayer(e);
+              } else {
+                  // Reuse the existing circle marker so its DOM element (and
+                  // hopefully CSS animation) is preserved.
+                  var marker = layer.getFeaturesByAttribute('marker', true)[0];
+                  // Can't reuse the background circle feature as there seems to
+                  // be no easy way to replace its geometry with a new
+                  // circle sized according to this location update's accuracy.
+                  // Instead recreate the feature from scratch.
+                  var uncertainty = createCircleOfUncertainty(e);
+                  // Because we're replacing the accuracy circle, it needs to be
+                  // rendered underneath the location marker. In order to do this
+                  // we have to remove all features and re-add, as simply removing
+                  // and re-adding one feature will always render it on top of others.
+                  console.log(uncertainty);
+                  layer.removeAllFeatures();
+                  layer.addFeatures([ uncertainty, marker ]);
+                  // If the above still breaks CSS animation because the marker
+                  // was removed from the DOM, we could leave the marker alone
+                  // and just remove the uncertainty circle feature, re-add it
+                  // as a new feature and then manually shift its position
+                  // in the DOM by getting its element's ID from
+                  // uncertainty.geometry.id and moving it before the <circle>
+                  // element.
+
+                  // Don't forget to update the position of the GPS marker.
+                  marker.move(new OpenLayers.LonLat(e.point.x, e.point.y));
+              }
           }
 
           var control = new OpenLayers.Control.Geolocate({
