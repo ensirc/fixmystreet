@@ -2058,6 +2058,21 @@ img.pin {
   }
 }
 
+@keyframes geolocationthrob {
+  from {
+    stroke-width: 2px;
+  }
+
+  to {
+    stroke-width: 6px;
+  }
+}
+
+// the blue geolocation dot
+circle[fill="#0074FF"] {
+  animation: 4s alternate geolocationthrob;
+}
+
 #loading-indicator {
   height: 32px;
   width: 32px;
